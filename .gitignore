@@ -1,0 +1,8 @@
+__pycache__/utils.cpython-310.pyc
+.vscode/launch.json
+
+
+# Added by cargo
+
+/target
+qr/target
