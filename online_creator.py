@@ -5,6 +5,7 @@ import utils
 import requests
 from eth_abi import decode
 import rlp
+from eth_utils import to_bytes, keccak, to_hex
 
 ZKSYNC_URL = 'https://mainnet.era.zksync.io'
 ETH_URL = 'https://rpc.ankr.com/eth'
@@ -108,6 +109,101 @@ def get_commit_and_prove_and_verify(l1_batch):
     response = requests.post(ZKSYNC_URL, headers=headers, data=json.dumps(data))
     response_json = response.json()["result"]
     return response_json["commitTxHash"], response_json["proveTxHash"], response_json["executeTxHash"]
+
+
+def compute_eth_tx_hash(nonce, gas_price, gas_limit, to, value, data, v, r, s):
+    # Encode the transaction
+    tx = [
+        nonce,
+        gas_price,
+        gas_limit,
+        to_bytes(hexstr=to) if to else b'',
+        value,
+        to_bytes(hexstr=data) if data else b'',
+        to_bytes(v),
+        to_bytes(r),
+        to_bytes(s)
+    ]
+
+    # Serialize the transaction using RLP
+    serialized_tx = rlp.encode(tx)
+
+    # Compute the transaction hash using Keccak-256
+    tx_hash = keccak(serialized_tx)
+    
+    # Return the transaction hash in hexadecimal format
+    return to_hex(tx_hash)
+
+def compute_eip1559_tx_hash(chain_id, nonce, max_priority_fee_per_gas, max_fee_per_gas, gas_limit, to, value, data, access_list, v, r, s):
+    # Encode the transaction
+    tx = [
+        chain_id,
+        nonce,
+        max_priority_fee_per_gas,
+        max_fee_per_gas,
+        gas_limit,
+        to_bytes(hexstr=to) if to else b'',
+        value,
+        to_bytes(hexstr=data) if data else b'',
+        access_list,
+        to_bytes(v),
+        to_bytes(r),
+        to_bytes(s)
+    ]
+
+    print(tx)
+
+    # Prepend the transaction type (0x02 for EIP-1559)
+    tx_type = b'\x02'
+    
+    # Serialize the transaction using RLP
+    serialized_tx = tx_type + rlp.encode(tx)
+
+    print("--- SERIALIZED")
+    print(serialized_tx)
+
+    # Compute the transaction hash using Keccak-256
+    tx_hash = keccak(serialized_tx)
+    
+    # Return the transaction hash in hexadecimal format
+    return to_hex(tx_hash)
+    
+
+
+def get_raw_tx_by_hash(tx_hash):
+    web3 = Web3(Web3.HTTPProvider(ZKSYNC_URL))    
+    #web3 = Web3(Web3.HTTPProvider(ETH_URL))    
+
+
+    # Check if connected successfully
+    if not web3.is_connected():
+        print("Failed to connect to zkSync node.")
+        raise
+    raw_tx = web3.eth.get_transaction(tx_hash)
+
+    #really_raw_tx = web3.eth.get_raw_transaction(tx_hash)
+
+
+    chain_id = raw_tx.chainId
+    nonce = raw_tx.nonce
+    gas = raw_tx.gas
+
+
+    
+    h = compute_eth_tx_hash(raw_tx.nonce, raw_tx.gasPrice, raw_tx.gas, raw_tx.to, raw_tx.value, raw_tx.input.hex(), raw_tx.v, raw_tx.r, raw_tx.s)
+    print("First hash " + h)
+
+    h2 = compute_eip1559_tx_hash(raw_tx.chainId, raw_tx.nonce, raw_tx.maxPriorityFeePerGas, raw_tx.maxFeePerGas, raw_tx.gas, raw_tx.to, raw_tx.value, raw_tx.input.hex(), [],
+                                 raw_tx.v, raw_tx.r, raw_tx.s)
+    print("Second hash " + h2)
+
+
+    #print(" -- RAW -- ")
+    #print(really_raw_tx)
+
+
+    return raw_tx
+
 
 
 PROVE_BATCHES_SHARED_BRIDGE_SELECTOR = "0xc37533bb"
@@ -296,6 +392,26 @@ def prove_tx_inclusion_in_chain(tx):
 
 
 def main():
+
+
+
+
+
+    print(get_raw_tx_by_hash("0x4ce495a7b7841ccf3addcd16cb7b1903facf8060e81a34e0949143007210fa9a"))
+
+    #print(get_raw_tx_by_hash("0x98a6b956b5f72d3221f437aa7941243270a18e6969432f8b221b6cd7212d0a41"))
+    print("---------")
+
+    #print(get_raw_tx_by_hash("0x7cac7b9a01a70d50996097876d8006e7cfbf170a32d85097c80b1e53cb76b940"))
+    
+    print(get_raw_tx_by_hash("0x13f64c6054f093575728fb88b79336bbfd7bec13f1c86cff0cf31193b31170de"))
+
+
+    
+
+    return
+
+
     # Check if at least one argument is provided
     if len(sys.argv) > 1:
         transaction_id = sys.argv[1]
@@ -308,6 +424,8 @@ def main():
 
         with open(file_path, 'w') as file:
             json.dump(data, file, indent=4)
+
+        print("Stored result in output.json")
 
         
     else:
