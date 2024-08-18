@@ -1,16 +1,20 @@
 use blake2::{Blake2s, Digest};
 use core::hash;
+use ethabi::ethereum_types::U256;
+use ethabi::{param_type, Function, Param, ParamType, Token, TupleParam};
 use hex::{FromHex, ToHex};
 use rlp::{Rlp, RlpStream};
 use secp256k1::ecdsa::{self, RecoverableSignature, RecoveryId};
-use secp256k1::{Message, Secp256k1};
+use secp256k1::{Message, PublicKey, Secp256k1};
 use serde::Deserialize;
 use serde_json::Result;
 use std::hash::Hash;
 use std::io::BufReader;
-use std::str::Bytes;
+use std::str::{Bytes, FromStr};
 use std::{fs::File, thread::current};
 use tiny_keccak::{Hasher, Keccak};
+
+const ZKSYNC_MAINNNET_OPERATOR: &str = "0d3250c3d5facb74ac15834096397a3ef790ec99";
 
 #[derive(Deserialize, Debug)]
 struct TxProof {
@@ -30,6 +34,9 @@ struct TxProof {
 
     #[serde(rename = "batchCommitTx")]
     batch_commit_tx: String,
+
+    #[serde(rename = "batchNumber")]
+    batch_number: u64,
 }
 
 #[derive(Deserialize, Debug)]
@@ -37,6 +44,14 @@ struct StorageProof {
     proof: Vec<String>,
     value: String,
     index: u64,
+}
+
+fn compute_keccak(input: &[u8]) -> [u8; 32] {
+    let mut hasher = Keccak::v256();
+    hasher.update(input);
+    let mut output = [0u8; 32];
+    hasher.finalize(&mut output);
+    output
 }
 
 fn compute_blake_hash(input: &Vec<u8>) -> Vec<u8> {
@@ -206,6 +221,37 @@ impl Signature {
             s: hex::encode(rlp.val_at::<Vec<u8>>(start_index + 2).unwrap()),
         }
     }
+
+    fn key_to_address(key: &PublicKey) -> String {
+        let public_key_as_eth = &key.serialize_uncompressed()[1..];
+
+        let h = compute_keccak(&public_key_as_eth);
+
+        hex::encode(&h[12..])
+    }
+
+    pub fn verify_signature(&self, msg: &Message) -> Result<String> {
+        let secp = Secp256k1::new();
+
+        let recovery = RecoveryId::from_i32(self.v as i32).unwrap();
+
+        let mut signature = [0u8; 64];
+
+        signature[..32].copy_from_slice(&hex_str_to_bytes(&self.r));
+        signature[32..].copy_from_slice(&hex_str_to_bytes(&self.s));
+
+        let sig = RecoverableSignature::from_compact(&signature, recovery).unwrap();
+        let key = secp.recover_ecdsa(&msg, &sig).unwrap();
+
+        let sig = ecdsa::Signature::from_compact(&signature).unwrap();
+
+        let address = Signature::key_to_address(&key);
+
+        println!("Address is: {:?}", address);
+
+        secp.verify_ecdsa(&msg, &sig, &key).unwrap();
+        Ok(address)
+    }
 }
 
 impl rlp::Encodable for Signature {
@@ -295,64 +341,122 @@ impl BlobTransaction {
 
     fn verify_signature(&self) -> bool {
         let hash = self.pre_sign_hash();
-
-        println!("Signature hash is: {:?}", hex::encode(hash));
-        let secp = Secp256k1::new();
-
         let msg = Message::from_digest(hash);
-        println!("Recovery id is :{}", self.signature.v);
-        let recovery = RecoveryId::from_i32(self.signature.v as i32).unwrap();
 
-        let mut signature = [0u8; 64];
+        let address = self.signature.verify_signature(&msg).unwrap();
 
-        signature[..32].copy_from_slice(&hex_str_to_bytes(&self.signature.r));
-        signature[32..].copy_from_slice(&hex_str_to_bytes(&self.signature.s));
-
-        let sig = RecoverableSignature::from_compact(&signature, recovery).unwrap();
-        let key = secp.recover_ecdsa(&msg, &sig).unwrap();
-
-        for recovery in 0..=1 {
-            let r1 = RecoveryId::from_i32(recovery).unwrap();
-            let ss = RecoverableSignature::from_compact(&signature, r1).unwrap();
-            let k = secp.recover_ecdsa(&msg, &ss).unwrap();
-            println!("Key {}  is {} ", recovery, k);
-            println!("Key {}  is {:?} ", recovery, k);
+        if address != ZKSYNC_MAINNNET_OPERATOR {
+            println!("Wrong signer");
+            return false;
         }
-
-        let sig = ecdsa::Signature::from_compact(&signature).unwrap();
-
-        println!("Key is: {:?}", key);
-
-        secp.verify_ecdsa(&msg, &sig, &key).unwrap();
-
-        //let res = secp.verify_ecdsa(&msg, sig, pk);
-
-        //println!("Result is {:?}", res);
-
-        //return res.is_ok();
         true
     }
 }
+#[derive(Deserialize, Debug)]
+struct CommitBatchInfo {
+    batch_number: U256,
+    state_root: Vec<u8>,
+}
 
-struct CommitCalldata {}
-impl CommitCalldata {
-    fn from_input(input: &Vec<u8>) -> Self {
-        CommitCalldata {}
-    }
+impl CommitBatchInfo {
+    fn from_token(token: &Token) -> Self {
+        let tokens = token.clone().into_tuple().unwrap();
 
-    fn get_batch_stateroot(&self, batch_number: u64) -> Option<Vec<u8>> {
-        None
+        Self {
+            batch_number: tokens[0].clone().into_uint().unwrap(),
+            state_root: tokens[3].clone().into_fixed_bytes().unwrap(),
+        }
     }
 }
 
-fn verify_batch_commit_tx(commit_tx: &str, root_hash: &str) -> bool {
+struct CommitCalldata {
+    pub batch_info_list: Vec<CommitBatchInfo>,
+}
+impl CommitCalldata {
+    fn from_input(input: &Vec<u8>) -> Self {
+        let function = Function {
+            name: "commitBatchesSharedBridge".to_string(),
+            inputs: vec![
+                Param {
+                    name: "chain_id".to_string(),
+                    kind: ParamType::Uint(256),
+                    internal_type: None,
+                },
+                Param {
+                    name: "prev".to_string(),
+                    kind: ParamType::Tuple(vec![
+                        ParamType::Uint(64),
+                        ParamType::FixedBytes(32),
+                        ParamType::Uint(64),
+                        ParamType::Uint(256),
+                        ParamType::FixedBytes(32),
+                        ParamType::FixedBytes(32),
+                        ParamType::Uint(256),
+                        ParamType::FixedBytes(32),
+                    ]),
+
+                    //uint64,bytes32,uint64,uint256,bytes32,bytes32,uint256,bytes32
+                    internal_type: None,
+                },
+                Param {
+                    name: "new".to_string(),
+                    // uint64,uint64,uint64,bytes32,uint256,bytes32,bytes32,bytes32,bytes,bytes
+                    kind: ParamType::Array(Box::new(ParamType::Tuple(vec![
+                        ParamType::Uint(64),
+                        ParamType::Uint(64),
+                        ParamType::Uint(64),
+                        ParamType::FixedBytes(32),
+                        ParamType::Uint(256),
+                        ParamType::FixedBytes(32),
+                        ParamType::FixedBytes(32),
+                        ParamType::FixedBytes(32),
+                        ParamType::Bytes,
+                        ParamType::Bytes,
+                    ]))),
+                    internal_type: None,
+                },
+            ],
+            outputs: vec![],
+            constant: None,
+            state_mutability: ethabi::StateMutability::NonPayable,
+        };
+
+        let selector = hex::encode(&input[..4]);
+        // commitBatchesSharedBridge
+        if selector != hex::encode(function.short_signature()) {
+            panic!("Wrong selector");
+        }
+
+        let t = function.decode_input(&input[4..]).unwrap();
+        let batch_info_list = t[2]
+            .clone()
+            .into_array()
+            .unwrap()
+            .iter()
+            .map(|e| CommitBatchInfo::from_token(e))
+            .collect::<Vec<_>>();
+
+        println!("parsed: {:?}", batch_info_list);
+
+        CommitCalldata { batch_info_list }
+    }
+
+    fn get_batch_stateroot(&self, batch_number: u64) -> Option<Vec<u8>> {
+        self.batch_info_list
+            .iter()
+            .find(|x| x.batch_number == U256::try_from(batch_number).unwrap())
+            .map(|entry| entry.state_root.clone())
+    }
+}
+
+fn verify_batch_commit_tx(commit_tx: &str, batch_number: u64, root_hash: &str) -> bool {
     let commit_tx = hex_str_to_bytes(commit_tx);
-    let mut hasher = Keccak::v256();
-    hasher.update(&commit_tx);
-    let mut output = [0u8; 32];
-    hasher.finalize(&mut output);
+
     // Just for sanity checking.
-    println!("Commit batch Tx hash is {:?}", hex::encode(output));
+    println!(
+        "Commit batch Tx hash is {:?}",
+        hex::encode(compute_keccak(&commit_tx))
+    );
 
     if commit_tx[0] != 3 {
         println!("Only supporting type 3 transactions - blobs");
@@ -367,6 +471,14 @@ fn verify_batch_commit_tx(commit_tx: &str, root_hash: &str) -> bool {
     println!("Blob tx hash is {:?}", blob_transaction.transaction_hash());
 
     blob_transaction.verify_signature();
+
+    let commit_calldata = CommitCalldata::from_input(&hex_str_to_bytes(&blob_transaction.calldata));
+
+    let root_hash_in_commit = commit_calldata.get_batch_stateroot(batch_number).unwrap();
+    if root_hash_in_commit != hex_str_to_bytes(root_hash) {
+        println!("Wrong root hashes -- fail");
+        return false;
+    }
 
     true
 }
@@ -419,7 +531,11 @@ fn verify_proof(proof: &TxProof) -> bool {
     // Now that we know that storage matches, we have to check that this batch_root_hash was
     // really included.
 
-    if verify_batch_commit_tx(&proof.batch_commit_tx, &proof.batch_root_hash) {
+    if verify_batch_commit_tx(
+        &proof.batch_commit_tx,
+        proof.batch_number,
+        &proof.batch_root_hash,
+    ) {
         println!("COMMIT VERIFIED");
     } else {
         println!("COMMIT VERIFICATION FAILED");
