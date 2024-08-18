@@ -134,6 +134,56 @@ def compute_eth_tx_hash(nonce, gas_price, gas_limit, to, value, data, v, r, s):
     # Return the transaction hash in hexadecimal format
     return to_hex(tx_hash)
 
+def compute_eth_tx_hash_wihtout_sign(nonce, gas_price, gas_limit, to, value, data):
+    # Encode the transaction
+    tx = [
+        nonce,
+        gas_price,
+        gas_limit,
+        to_bytes(hexstr=to) if to else b'',
+        value,
+        to_bytes(hexstr=data) if data else b'',
+        
+    ]
+
+    # Serialize the transaction using RLP
+    serialized_tx = rlp.encode(tx)
+
+    # Compute the transaction hash using Keccak-256
+    tx_hash = keccak(serialized_tx)
+    
+    # Return the transaction hash in hexadecimal format
+    return to_hex(tx_hash)
+
+def compute_eip1559_tx_hash_without_sign(chain_id, nonce, max_priority_fee_per_gas, max_fee_per_gas, gas_limit, to, value, data, access_list):
+    # Encode the transaction
+    tx = [
+        chain_id,
+        nonce,
+        max_priority_fee_per_gas,
+        max_fee_per_gas,
+        gas_limit,
+        to_bytes(hexstr=to) if to else b'',
+        value,
+        to_bytes(hexstr=data) if data else b'',
+        access_list,
+        
+    ]
+
+    print(tx)
+
+    # Prepend the transaction type (0x02 for EIP-1559)
+    tx_type = b'\x02'
+    
+    # Serialize the transaction using RLP
+    serialized_tx = tx_type + rlp.encode(tx)
+
+    # Compute the transaction hash using Keccak-256
+    tx_hash = keccak(serialized_tx)
+    
+    # Return the transaction hash in hexadecimal format
+    return to_hex(tx_hash)
+
 def compute_eip1559_tx_hash(chain_id, nonce, max_priority_fee_per_gas, max_fee_per_gas, gas_limit, to, value, data, access_list, v, r, s):
     # Encode the transaction
     tx = [
@@ -171,6 +221,7 @@ def compute_eip1559_tx_hash(chain_id, nonce, max_priority_fee_per_gas, max_fee_p
 
 
 def get_raw_tx_by_hash(tx_hash):
+    #web3 = Web3(Web3.HTTPProvider("http://localhost:3050"))    
     web3 = Web3(Web3.HTTPProvider(ZKSYNC_URL))    
     #web3 = Web3(Web3.HTTPProvider(ETH_URL))    
 
@@ -192,10 +243,17 @@ def get_raw_tx_by_hash(tx_hash):
     
     h = compute_eth_tx_hash(raw_tx.nonce, raw_tx.gasPrice, raw_tx.gas, raw_tx.to, raw_tx.value, raw_tx.input.hex(), raw_tx.v, raw_tx.r, raw_tx.s)
     print("First hash " + h)
+    h = compute_eth_tx_hash_wihtout_sign(raw_tx.nonce, raw_tx.gasPrice, raw_tx.gas, raw_tx.to, raw_tx.value, raw_tx.input.hex())
+    print("First hash (no sign) " + h)
 
     h2 = compute_eip1559_tx_hash(raw_tx.chainId, raw_tx.nonce, raw_tx.maxPriorityFeePerGas, raw_tx.maxFeePerGas, raw_tx.gas, raw_tx.to, raw_tx.value, raw_tx.input.hex(), [],
                                  raw_tx.v, raw_tx.r, raw_tx.s)
     print("Second hash " + h2)
+
+    h2 = compute_eip1559_tx_hash_without_sign(raw_tx.chainId, raw_tx.nonce, raw_tx.maxPriorityFeePerGas, raw_tx.maxFeePerGas, raw_tx.gas, raw_tx.to, raw_tx.value, raw_tx.input.hex(), []
+                                 )
+    print("Second hash (no sigh)" + h2)
+
 
 
     #print(" -- RAW -- ")
@@ -404,7 +462,10 @@ def main():
 
     #print(get_raw_tx_by_hash("0x7cac7b9a01a70d50996097876d8006e7cfbf170a32d85097c80b1e53cb76b940"))
     
+    #
     print(get_raw_tx_by_hash("0x13f64c6054f093575728fb88b79336bbfd7bec13f1c86cff0cf31193b31170de"))
+
+    #print(get_raw_tx_by_hash("0x7c2447b1592ff8d20178c8cbc1158bb1e21c5ad297169ba0d3bd2242c0624a4b"))
 
 
     
