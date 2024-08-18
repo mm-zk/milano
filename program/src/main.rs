@@ -1,17 +1,13 @@
 use blake2::{Blake2s, Digest};
-use core::hash;
 use ethabi::ethereum_types::U256;
-use ethabi::{param_type, Function, Param, ParamType, Token, TupleParam};
-use hex::{FromHex, ToHex};
+use ethabi::{Function, Param, ParamType, Token};
+use hex::FromHex;
 use rlp::{Rlp, RlpStream};
 use secp256k1::ecdsa::{self, RecoverableSignature, RecoveryId};
 use secp256k1::{Message, PublicKey, Secp256k1};
 use serde::Deserialize;
-use serde_json::Result;
-use std::hash::Hash;
+use std::fs::File;
 use std::io::BufReader;
-use std::str::{Bytes, FromStr};
-use std::{fs::File, thread::current};
 use tiny_keccak::{Hasher, Keccak};
 
 const ZKSYNC_MAINNNET_OPERATOR: &str = "0d3250c3d5facb74ac15834096397a3ef790ec99";
@@ -46,6 +42,7 @@ struct StorageProof {
     index: u64,
 }
 
+// Compute keccak hash for a given bytes.
 fn compute_keccak(input: &[u8]) -> [u8; 32] {
     let mut hasher = Keccak::v256();
     hasher.update(input);
@@ -54,6 +51,7 @@ fn compute_keccak(input: &[u8]) -> [u8; 32] {
     output
 }
 
+// Computes Blake2s hash.
 fn compute_blake_hash(input: &Vec<u8>) -> Vec<u8> {
     let mut hasher = Blake2s::new();
     hasher.update(input);
@@ -61,13 +59,17 @@ fn compute_blake_hash(input: &Vec<u8>) -> Vec<u8> {
 }
 
 impl StorageProof {
-    pub fn verify_storage_proof(&self, account: &str, key: &str, root_hash: Vec<u8>) -> bool {
+    pub fn verify_storage_proof(
+        &self,
+        account: &str,
+        key: &str,
+        root_hash: Vec<u8>,
+    ) -> Result<(), String> {
         let account = hex_str_to_bytes(account);
         let key = hex_str_to_bytes(key);
 
         if account.len() != 20 || key.len() != 32 {
-            println!("Wrong key / account lenghts");
-            return false;
+            return Err("Wrong key / account lenghts".to_owned());
         }
 
         let tree_key = [vec![0u8; 12], account, key].concat();
@@ -82,8 +84,7 @@ impl StorageProof {
         let index = self.index.to_be_bytes();
         let value = hex_str_to_bytes(&self.value);
         if value.len() != 32 {
-            println!("Invalid value length");
-            return false;
+            return Err("Invalid value length".to_owned());
         }
 
         let value_hash = compute_blake_hash(&[index.to_vec(), value].concat());
@@ -118,14 +119,17 @@ impl StorageProof {
         }
 
         if current_hash != root_hash {
-            println!("Root hash doesn't match");
-            return false;
+            return Err(format!(
+                "Root hash doesn't match {:?} vs {:?}",
+                current_hash, root_hash
+            ));
         }
 
-        true
+        Ok(())
     }
 }
 
+// Hex string (with potentially 0x prefix) to bytes.
 fn hex_str_to_bytes(hex_str: &str) -> Vec<u8> {
     // Check for and remove the "0x" prefix if it exists
     let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
@@ -136,18 +140,11 @@ fn hex_str_to_bytes(hex_str: &str) -> Vec<u8> {
     bytes
 }
 
-fn calculate_transaction_rolling_hash(transaction_hashes: &Vec<String>) -> Vec<u8> {
-    let mut prev: Vec<u8> = [0u8; 32].into();
+fn calculate_transaction_rolling_hash(transaction_hashes: &Vec<String>) -> [u8; 32] {
+    let mut prev = [0u8; 32];
 
     for entry in transaction_hashes.iter() {
-        let mut hasher = Keccak::v256();
-        hasher.update(prev.as_slice());
-        let entry_as_bytes = hex_str_to_bytes(entry);
-        hasher.update(entry_as_bytes.as_slice());
-
-        let mut output = [0u8; 32];
-        hasher.finalize(&mut output);
-        prev = output.into();
+        prev = compute_keccak(&[&prev, hex_str_to_bytes(entry).as_slice()].concat());
     }
     prev
 }
@@ -167,19 +164,16 @@ fn calculate_block_hash(
     block_timestamp: u64,
     prev_block_hash: &[u8],
     rolling_hash: &[u8],
-) -> Vec<u8> {
-    let mut hasher = Keccak::v256();
-
-    hasher.update(&u64_to_solidity_u256(block_number));
-
-    hasher.update(&u64_to_solidity_u256(block_timestamp));
-
-    hasher.update(prev_block_hash);
-    hasher.update(rolling_hash);
-
-    let mut output = [0u8; 32];
-    hasher.finalize(&mut output);
-    output.into()
+) -> [u8; 32] {
+    compute_keccak(
+        &[
+            &u64_to_solidity_u256(block_number),
+            &u64_to_solidity_u256(block_timestamp),
+            prev_block_hash,
+            rolling_hash,
+        ]
+        .concat(),
+    )
 }
 
 fn get_key_for_recent_block(block_number: u64) -> String {
@@ -230,7 +224,7 @@ impl Signature {
         hex::encode(&h[12..])
     }
 
-    pub fn verify_signature(&self, msg: &Message) -> Result<String> {
+    pub fn verify_signature(&self, msg: &Message) -> Result<String, String> {
         let secp = Secp256k1::new();
 
         let recovery = RecoveryId::from_i32(self.v as i32).unwrap();
@@ -449,7 +443,11 @@ impl CommitCalldata {
     }
 }
 
-fn verify_batch_commit_tx(commit_tx: &str, batch_number: u64, root_hash: &str) -> bool {
+fn verify_batch_commit_tx(
+    commit_tx: &str,
+    batch_number: u64,
+    root_hash: &str,
+) -> Result<(), String> {
     let commit_tx = hex_str_to_bytes(commit_tx);
 
     // Just for sanity checking.
@@ -459,8 +457,7 @@ fn verify_batch_commit_tx(commit_tx: &str, batch_number: u64, root_hash: &str) -
     );
 
     if commit_tx[0] != 3 {
-        println!("Only supporting type 3 transactions - blobs");
-        return false;
+        return Err("Only supporting type 3 transactions - blobs".to_owned());
     }
 
     let rlp = Rlp::new(&commit_tx[1..]);
@@ -476,28 +473,28 @@ fn verify_batch_commit_tx(commit_tx: &str, batch_number: u64, root_hash: &str) -
 
     let root_hash_in_commit = commit_calldata.get_batch_stateroot(batch_number).unwrap();
     if root_hash_in_commit != hex_str_to_bytes(root_hash) {
-        println!("Wrong root hashes -- fail");
-        return false;
+        return Err(format!(
+            "Wrong root hashes -- fail {:?} vs {:?}",
+            root_hash_in_commit,
+            hex_str_to_bytes(root_hash)
+        ));
     }
 
-    true
+    Ok(())
 }
 
 const SYSTEM_CONTEXT_ADDRESS: &str = "0x000000000000000000000000000000000000800B";
 
-fn verify_proof(proof: &TxProof) -> bool {
+fn verify_proof(proof: &TxProof) -> Result<(), String> {
     println!("Checking proof for transaction {:?}", proof.transaction_id);
 
     if !proof.transactions_in_block.contains(&proof.transaction_id) {
-        return false;
+        return Err("transation not in block".to_owned());
     }
 
     let rolling_hash = calculate_transaction_rolling_hash(&proof.transactions_in_block);
 
-    println!(
-        "Rolling hash is {:?}",
-        rolling_hash.as_slice().encode_hex::<String>()
-    );
+    println!("Rolling hash is {:?}", hex::encode(rolling_hash));
 
     let block_hash = calculate_block_hash(
         proof.block_number,
@@ -506,57 +503,48 @@ fn verify_proof(proof: &TxProof) -> bool {
         &rolling_hash,
     );
 
-    println!(
-        "block hash is {:?}",
-        block_hash.as_slice().encode_hex::<String>()
-    );
+    println!("block hash is {:?}", hex::encode(block_hash));
 
     let storage_proof_value = hex_str_to_bytes(&proof.storage_proof.value);
     if storage_proof_value != block_hash {
-        println!("Invalid value in storage proof");
-        return false;
+        return Err("Invalid value in storage proof".to_owned());
     }
 
-    if proof.storage_proof.verify_storage_proof(
-        SYSTEM_CONTEXT_ADDRESS,
-        &get_key_for_recent_block(proof.block_number),
-        hex_str_to_bytes(&proof.batch_root_hash),
-    ) {
-        println!("STORAGE VERIFIED")
-    } else {
-        println!("STORAGE VERIFICATION FAILED");
-        return false;
-    }
+    proof
+        .storage_proof
+        .verify_storage_proof(
+            SYSTEM_CONTEXT_ADDRESS,
+            &get_key_for_recent_block(proof.block_number),
+            hex_str_to_bytes(&proof.batch_root_hash),
+        )
+        .map_err(|e| format!("STORAGE VERIFICATION FAILED {:?}", e))?;
 
     // Now that we know that storage matches, we have to check that this batch_root_hash was
     // really included.
 
-    if verify_batch_commit_tx(
+    verify_batch_commit_tx(
         &proof.batch_commit_tx,
         proof.batch_number,
         &proof.batch_root_hash,
-    ) {
-        println!("COMMIT VERIFIED");
-    } else {
-        println!("COMMIT VERIFICATION FAILED");
-        return false;
-    }
+    )
+    .map_err(|e| format!("COMMIT VERIFICATION FAILED: {}", e))?;
 
-    true
+    Ok(())
 }
 
-fn main() -> Result<()> {
+fn main() -> Result<(), String> {
     // Open the file in read-only mode.
     let file = File::open("../output.json").unwrap();
     let reader = BufReader::new(file);
 
     // Parse the JSON into the Person struct.
-    let tx_proof: TxProof = serde_json::from_reader(reader)?;
+    let tx_proof: TxProof =
+        serde_json::from_reader(reader).map_err(|e| format!("Json failed {}", e))?;
 
     // Print the parsed data.
     println!("{:?}", tx_proof);
-    let result = verify_proof(&tx_proof);
-    println!("Verification: {:?}", result);
+    verify_proof(&tx_proof)?;
+    println!("Verification: SUCESS");
 
     Ok(())
 }
