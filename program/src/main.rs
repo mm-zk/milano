@@ -2,9 +2,9 @@ use blake2::{Blake2s, Digest};
 use ethabi::ethereum_types::U256;
 use ethabi::{Function, Param, ParamType, Token};
 use hex::FromHex;
+use k256::ecdsa::signature::hazmat::PrehashVerifier;
+use k256::ecdsa::VerifyingKey;
 use rlp::{Rlp, RlpStream};
-use secp256k1::ecdsa::{self, RecoverableSignature, RecoveryId};
-use secp256k1::{Message, PublicKey, Secp256k1};
 use serde::Deserialize;
 use std::fs::File;
 use std::io::BufReader;
@@ -216,34 +216,39 @@ impl Signature {
         }
     }
 
-    fn key_to_address(key: &PublicKey) -> String {
-        let public_key_as_eth = &key.serialize_uncompressed()[1..];
+    fn key_to_address(key: &VerifyingKey) -> String {
+        let pkey = key.to_encoded_point(false);
+
+        let public_key_as_eth = &pkey.as_bytes()[1..];
 
         let h = compute_keccak(&public_key_as_eth);
 
         hex::encode(&h[12..])
     }
 
-    pub fn verify_signature(&self, msg: &Message) -> Result<String, String> {
-        let secp = Secp256k1::new();
+    pub fn verify_signature(&self, prehash: [u8; 32]) -> Result<String, String> {
+        let r = hex_str_to_bytes(&self.r);
+        let s = hex_str_to_bytes(&self.s);
 
-        let recovery = RecoveryId::from_i32(self.v as i32).unwrap();
+        let r1: [u8; 32] = r.as_slice().try_into().unwrap();
+        let s1: [u8; 32] = s.as_slice().try_into().unwrap();
 
-        let mut signature = [0u8; 64];
+        let sign1 = k256::ecdsa::Signature::from_scalars(r1, s1).unwrap();
 
-        signature[..32].copy_from_slice(&hex_str_to_bytes(&self.r));
-        signature[32..].copy_from_slice(&hex_str_to_bytes(&self.s));
+        let recoveryid = k256::ecdsa::RecoveryId::try_from(self.v as u8).unwrap();
 
-        let sig = RecoverableSignature::from_compact(&signature, recovery).unwrap();
-        let key = secp.recover_ecdsa(&msg, &sig).unwrap();
+        let recovered_key =
+            k256::ecdsa::VerifyingKey::recover_from_prehash(&prehash, &sign1, recoveryid).unwrap();
 
-        let sig = ecdsa::Signature::from_compact(&signature).unwrap();
+        let pkey = recovered_key.to_encoded_point(false);
 
-        let address = Signature::key_to_address(&key);
+        println!("k256 key -- {:?}", hex::encode(pkey.as_bytes()));
+        let address = Signature::key_to_address(&recovered_key);
 
         println!("Address is: {:?}", address);
 
-        secp.verify_ecdsa(&msg, &sig, &key).unwrap();
+        recovered_key.verify_prehash(&prehash, &sign1).unwrap();
+
         Ok(address)
     }
 }
@@ -335,9 +340,8 @@ impl BlobTransaction {
 
     fn verify_signature(&self) -> bool {
         let hash = self.pre_sign_hash();
-        let msg = Message::from_digest(hash);
 
-        let address = self.signature.verify_signature(&msg).unwrap();
+        let address = self.signature.verify_signature(hash).unwrap();
 
         if address != ZKSYNC_MAINNNET_OPERATOR {
             println!("Wrong signer");
