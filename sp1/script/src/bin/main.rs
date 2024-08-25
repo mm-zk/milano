@@ -10,6 +10,11 @@
 //! RUST_LOG=info cargo run --release -- --prove
 //! ```
 
+use std::{
+    fs::File,
+    io::{BufReader, Read},
+};
+
 use alloy_sol_types::SolType;
 use clap::Parser;
 use fibonacci_lib::PublicValuesStruct;
@@ -51,6 +56,13 @@ fn main() {
     let mut stdin = SP1Stdin::new();
     stdin.write(&args.n);
 
+    let file = File::open("../../output.json").unwrap();
+    let mut reader = BufReader::new(file);
+    let mut data = String::new();
+    reader.read_to_string(&mut data).unwrap();
+
+    stdin.write(&data);
+
     println!("n: {}", args.n);
 
     if args.execute {
@@ -60,10 +72,11 @@ fn main() {
 
         // Read the output.
         let decoded = PublicValuesStruct::abi_decode(output.as_slice(), true).unwrap();
-        let PublicValuesStruct { n, a, b } = decoded;
+        let PublicValuesStruct { n, a, b, tx_id } = decoded;
         println!("n: {}", n);
         println!("a: {}", a);
         println!("b: {}", b);
+        println!("tx_id: {:?}", hex::encode(&tx_id.to_le_bytes_vec()));
 
         let (expected_a, expected_b) = fibonacci_lib::fibonacci(n);
         assert_eq!(a, expected_a);

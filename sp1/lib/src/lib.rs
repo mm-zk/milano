@@ -1,4 +1,6 @@
+use alloy_primitives::U256;
 use alloy_sol_types::sol;
+use tiny_keccak::{Hasher, Keccak};
 
 sol! {
     /// The public values encoded as a struct that can be easily deserialized inside Solidity.
@@ -6,6 +8,7 @@ sol! {
         uint32 n;
         uint32 a;
         uint32 b;
+        uint256 tx_id;
     }
 }
 
@@ -19,4 +22,18 @@ pub fn fibonacci(n: u32) -> (u32, u32) {
         b = c;
     }
     (a, b)
+}
+
+pub fn other_stuff() -> U256 {
+    U256::from_be_bytes(compute_keccak(&[0]))
+
+    //U256::from(15)
+}
+
+fn compute_keccak(input: &[u8]) -> [u8; 32] {
+    let mut hasher = Keccak::v256();
+    hasher.update(input);
+    let mut output = [0u8; 32];
+    hasher.finalize(&mut output);
+    output
 }
