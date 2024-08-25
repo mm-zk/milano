@@ -72,16 +72,19 @@ fn main() {
 
         // Read the output.
         let decoded = PublicValuesStruct::abi_decode(output.as_slice(), true).unwrap();
-        let PublicValuesStruct { n, a, b, tx_id } = decoded;
-        println!("n: {}", n);
-        println!("a: {}", a);
-        println!("b: {}", b);
-        println!("tx_id: {:?}", hex::encode(&tx_id.to_le_bytes_vec()));
+        let PublicValuesStruct {
+            sender,
+            receiver,
+            token,
+            amount,
+            tx_id,
+        } = decoded;
 
-        let (expected_a, expected_b) = fibonacci_lib::fibonacci(n);
-        assert_eq!(a, expected_a);
-        assert_eq!(b, expected_b);
-        println!("Values are correct!");
+        println!("sender: {:?}", sender);
+        println!("receiver: {:?}", receiver);
+        println!("token: {:?}", token);
+        println!("amount: {:?}", amount);
+        println!("tx id: {:?}", tx_id);
 
         // Record the number of cycles executed.
         println!("Number of cycles: {}", report.total_instruction_count());

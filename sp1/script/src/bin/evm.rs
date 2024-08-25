@@ -28,9 +28,11 @@ struct EVMArgs {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SP1FibonacciProofFixture {
-    a: u32,
-    b: u32,
-    n: u32,
+    sender: String,
+    receiver: String,
+    token: String,
+    amount: u64,
+    tx_id: String,
     vkey: String,
     public_values: String,
     proof: String,
@@ -69,13 +71,21 @@ fn main() {
 fn create_plonk_fixture(proof: &SP1ProofWithPublicValues, vk: &SP1VerifyingKey) {
     // Deserialize the public values.
     let bytes = proof.public_values.as_slice();
-    let PublicValuesStruct { n, a, b } = PublicValuesStruct::abi_decode(bytes, false).unwrap();
+    let PublicValuesStruct {
+        sender,
+        receiver,
+        token,
+        amount,
+        tx_id,
+    } = PublicValuesStruct::abi_decode(bytes, false).unwrap();
 
     // Create the testing fixture so we can test things end-to-end.
     let fixture = SP1FibonacciProofFixture {
-        a,
-        b,
-        n,
+        sender: sender.to_string(),
+        receiver: receiver.to_string(),
+        token: token.to_string(),
+        amount: amount.try_into().unwrap(),
+        tx_id: tx_id.to_string(),
         vkey: vk.bytes32().to_string(),
         public_values: format!("0x{}", hex::encode(bytes)),
         proof: format!("0x{}", hex::encode(proof.bytes())),

@@ -8,10 +8,10 @@
 #![no_main]
 sp1_zkvm::entrypoint!(main);
 
-use alloy_primitives::U256;
+use alloy_primitives::{Address, U256};
 use alloy_sol_types::SolType;
-use fibonacci_lib::{fibonacci, other_stuff, PublicValuesStruct};
-use tx_verifier::{hex_str_to_bytes, verify_proof, TxProof};
+use fibonacci_lib::PublicValuesStruct;
+use tx_verifier::{hex_str_to_bytes, verify_proof, TokenTransfer, TxProof};
 
 pub fn main() {
     // Read an input to the program.
@@ -23,16 +23,25 @@ pub fn main() {
     let json_data = sp1_zkvm::io::read::<String>();
     let tx_proof: TxProof = serde_json::from_str(&json_data).unwrap();
 
+    let tx_id = tx_proof.transaction_id.clone();
+
     // Compute the n'th fibonacci number using a function from the workspace lib crate.
-    let (a, b) = fibonacci(n);
-    let foo = other_stuff();
 
     verify_proof(&tx_proof).unwrap();
-
-    let tx_id = U256::from_le_slice(&hex_str_to_bytes(&tx_proof.transaction_id));
+    let token_transfer = TokenTransfer::try_from(tx_proof).unwrap();
 
     // Encode the public values of the program.
-    let bytes = PublicValuesStruct::abi_encode(&PublicValuesStruct { n, a, b, tx_id });
+
+    let mut tmp = [0u8; 32];
+    token_transfer.amount.to_big_endian(&mut tmp);
+
+    let bytes = PublicValuesStruct::abi_encode(&PublicValuesStruct {
+        sender: Address::from_slice(token_transfer.from.as_bytes()),
+        receiver: Address::from_slice(token_transfer.to.as_bytes()),
+        token: Address::from_slice(token_transfer.token.as_bytes()),
+        amount: U256::from_be_bytes(tmp),
+        tx_id: hex_str_to_bytes(&tx_id).as_slice().try_into().unwrap(),
+    });
 
     // Commit to the public values of the program. The final proof will have a commitment to all the
     // bytes that were committed to.
