@@ -66,6 +66,38 @@ def compute_gamma(proof, public_values):
     return gamma
 
 
+def compute_beta(gamma):
+    beta = hashlib.sha256("beta".encode("utf-8") + gamma).digest()
+    print("beta ", int.from_bytes(beta, byteorder='big'))
+    return beta
+
+
+def compute_alfa(proof, beta):
+    PROOF_BSB_COMMITMENTS = 0x320
+    CUSTOM_GATES = 1
+
+    PROOF_GRAND_PRODUCT_COMMITMENT_X = 0x220
+    # Bsb22Commitments
+    alfa = hashlib.sha256("alpha".encode("utf-8") + beta 
+                          + proof[PROOF_BSB_COMMITMENTS: PROOF_BSB_COMMITMENTS+64*CUSTOM_GATES]
+                          + proof[PROOF_GRAND_PRODUCT_COMMITMENT_X: PROOF_GRAND_PRODUCT_COMMITMENT_X + 64]).digest()
+
+    print("alfa ", int.from_bytes(alfa, byteorder='big'))
+    return alfa
+
+
+def compute_zeta(proof, alfa):
+    PROOF_H_0_X = 0xc0
+    zeta = hashlib.sha256("zeta".encode("utf-8") + alfa + proof[PROOF_H_0_X : PROOF_H_0_X  + 0xc0]).digest()
+    print("zeta ", int.from_bytes(zeta, byteorder='big'))
+    return zeta
+
+
+
+def reduce_bytes(input):
+    return (int.from_bytes(input, byteorder='big') % PRIME).to_bytes(32, 'big')
+
+
 
 # Now entering actual verify function.
 def verify_plonk(proof, public_values):
@@ -77,7 +109,15 @@ def verify_plonk(proof, public_values):
     # check_input_size -- ignored for now 
     # Also not checking proof values (that they are smaller than PRIME -1)
 
-    gamma = compute_gamma(proof, public_values)
+    gamma_not_reduced = compute_gamma(proof, public_values)
+    beta_not_reduced = compute_beta(gamma_not_reduced)
+    alfa_not_reduced = compute_alfa(proof, beta_not_reduced)
+    zeta_not_reduced = compute_zeta(proof, alfa_not_reduced)
+
+    zeta = reduce_bytes(zeta_not_reduced)
+    print("zeta reduced", int.from_bytes(zeta, byteorder='big'))
+
+
 
 
 
