@@ -1,6 +1,6 @@
 use blake2::{Blake2s, Digest};
 use ethabi::ethereum_types::U256;
-use ethabi::{Function, Param, ParamType, Token};
+use ethabi::{Address, Function, Param, ParamType, Token};
 use hex::FromHex;
 use k256::ecdsa::signature::hazmat::PrehashVerifier;
 use k256::ecdsa::VerifyingKey;
@@ -31,6 +31,17 @@ pub struct TxProof {
 
     #[serde(rename = "batchNumber")]
     batch_number: u64,
+
+    #[serde(rename = "txFrom")]
+    pub tx_from: String,
+    #[serde(rename = "txTo")]
+    pub tx_to: String,
+
+    #[serde(rename = "txCalldata")]
+    pub tx_calldata: String,
+
+    #[serde(rename = "txBody")]
+    tx_body: String,
 }
 
 #[derive(Deserialize, Debug)]
@@ -180,6 +191,87 @@ fn get_key_for_recent_block(block_number: u64) -> String {
         "0x{:064x}",
         block_number % 257 + MAPPING_RECENT_BLOCK_POSITION_IN_SYSTEM_CONTRACT
     )
+}
+
+#[derive(Deserialize, Debug)]
+
+struct Type2Transaction {
+    pub chain_id: u64,
+    pub nonce: u64,
+    pub max_priority_fee: u64,
+    pub max_fee_per_gas: u64,
+    pub gas_limit: u64,
+    pub to_address: String,
+    pub value: u64,
+    pub calldata: String,
+    pub access_list: Vec<Vec<u8>>,
+    pub signature: Signature,
+}
+
+impl rlp::Encodable for Type2Transaction {
+    fn rlp_append(&self, s: &mut rlp::RlpStream) {
+        s.begin_unbounded_list();
+        self.rlp_append_without_signature(s);
+        s.append(&self.signature);
+        s.finalize_unbounded_list();
+    }
+}
+
+impl Type2Transaction {
+    fn from_rlp(rlp: &Rlp) -> Self {
+        Type2Transaction {
+            chain_id: rlp.val_at(0).unwrap(),
+            nonce: rlp.val_at(1).unwrap(),
+            max_priority_fee: rlp.val_at(2).unwrap(),
+            max_fee_per_gas: rlp.val_at(3).unwrap(),
+            gas_limit: rlp.val_at(4).unwrap(),
+            to_address: hex::encode(rlp.val_at::<Vec<u8>>(5).unwrap()),
+            value: rlp.val_at(6).unwrap(),
+            calldata: hex::encode(rlp.val_at::<Vec<u8>>(7).unwrap()),
+            access_list: rlp.at(8).unwrap().as_list().unwrap(),
+            signature: Signature::from_rlp(rlp, 9),
+        }
+    }
+    fn rlp_append_without_signature(&self, s: &mut rlp::RlpStream) {
+        s.append(&self.chain_id)
+            .append(&self.nonce)
+            .append(&self.max_priority_fee)
+            .append(&self.max_fee_per_gas)
+            .append(&self.gas_limit)
+            .append(&hex_str_to_bytes(&self.to_address))
+            .append(&self.value)
+            .append(&hex_str_to_bytes(&self.calldata))
+            .append_list::<Vec<u8>, Vec<u8>>(&self.access_list);
+    }
+    fn transaction_hash(&self) -> String {
+        let mut hasher = Keccak::v256();
+        hasher.update(&[2u8]);
+        hasher.update(&rlp::encode(self));
+        let mut output = [0u8; 32];
+        hasher.finalize(&mut output);
+        hex::encode(output)
+    }
+    fn pre_sign_hash(&self) -> [u8; 32] {
+        let mut stream = RlpStream::new();
+        stream.begin_unbounded_list();
+        self.rlp_append_without_signature(&mut stream);
+        stream.finalize_unbounded_list();
+
+        let mut hasher = Keccak::v256();
+        hasher.update(&[2u8]);
+        hasher.update(&stream.out());
+        let mut output = [0u8; 32];
+        hasher.finalize(&mut output);
+        output
+    }
+
+    fn verify_signature(&self) -> String {
+        let hash = self.pre_sign_hash();
+
+        let address = self.signature.verify_signature(hash).unwrap();
+
+        address
+    }
 }
 
 #[derive(Deserialize, Debug)]
@@ -487,8 +579,33 @@ fn verify_batch_commit_tx(
 
 const SYSTEM_CONTEXT_ADDRESS: &str = "0x000000000000000000000000000000000000800B";
 
+pub fn verify_user_tx(proof: &TxProof) -> Result<(), String> {
+    let tx_body = hex_str_to_bytes(&proof.tx_body);
+    let rlp = Rlp::new(&tx_body[1..]);
+    let user_tx = Type2Transaction::from_rlp(&rlp);
+    if hex_str_to_bytes(&user_tx.transaction_hash()) != hex_str_to_bytes(&proof.transaction_id) {
+        return Err("Tx body has different hash than transaction id".to_owned());
+    }
+    let signer = user_tx.verify_signature();
+    if hex_str_to_bytes(&signer) != hex_str_to_bytes(&proof.tx_from) {
+        return Err("Tx signer doesnt match tx from".to_owned());
+    }
+
+    if hex_str_to_bytes(&user_tx.to_address) != hex_str_to_bytes(&proof.tx_to) {
+        return Err("TO address doesn't match".to_owned());
+    }
+
+    if hex_str_to_bytes(&user_tx.calldata) != hex_str_to_bytes(&proof.tx_calldata) {
+        return Err("Calldata doesn't match".to_owned());
+    }
+
+    Ok(())
+}
+
 pub fn verify_proof(proof: &TxProof) -> Result<(), String> {
     println!("Checking proof for transaction {:?}", proof.transaction_id);
+
+    verify_user_tx(proof)?;
 
     if !proof.transactions_in_block.contains(&proof.transaction_id) {
         return Err("transation not in block".to_owned());
@@ -532,4 +649,30 @@ pub fn verify_proof(proof: &TxProof) -> Result<(), String> {
     .map_err(|e| format!("COMMIT VERIFICATION FAILED: {}", e))?;
 
     Ok(())
+}
+
+#[derive(Debug)]
+pub struct TokenTransfer {
+    pub from: Address,
+    pub to: Address,
+    pub token: Address,
+    pub amount: U256,
+}
+
+impl TryFrom<TxProof> for TokenTransfer {
+    type Error = String;
+
+    fn try_from(value: TxProof) -> Result<Self, Self::Error> {
+        let calldata = hex_str_to_bytes(&value.tx_calldata);
+        if hex::encode(&calldata[..4]) != "a9059cbb" {
+            return Err("Wrong selector".to_owned());
+        }
+
+        Ok(Self {
+            from: Address::from_slice(&hex_str_to_bytes(&value.tx_from)),
+            token: Address::from_slice(&hex_str_to_bytes(&value.tx_to)),
+            to: Address::from_slice(&calldata[16..36]),
+            amount: U256::from_big_endian(&calldata[36..68]),
+        })
+    }
 }

@@ -1,6 +1,6 @@
 use std::{fs::File, io::BufReader};
 
-use tx_verifier::{verify_proof, TxProof};
+use tx_verifier::{verify_proof, TokenTransfer, TxProof};
 
 fn main() -> Result<(), String> {
     // Open the file in read-only mode.
@@ -15,6 +15,9 @@ fn main() -> Result<(), String> {
     println!("{:?}", tx_proof);
     verify_proof(&tx_proof)?;
     println!("Verification: SUCESS");
+
+    let aa = TokenTransfer::try_from(tx_proof).unwrap();
+    println!("Token transfer: {:?}", aa);
 
     Ok(())
 }

@@ -196,12 +196,11 @@ def compute_eip1559_tx_hash(chain_id, nonce, max_priority_fee_per_gas, max_fee_p
         value,
         to_bytes(hexstr=data) if data else b'',
         access_list,
-        to_bytes(v),
+        to_bytes(b'') if v == 0 else to_bytes(v),
         to_bytes(r),
         to_bytes(s)
     ]
 
-    print(tx)
 
     # Prepend the transaction type (0x02 for EIP-1559)
     tx_type = b'\x02'
@@ -209,15 +208,34 @@ def compute_eip1559_tx_hash(chain_id, nonce, max_priority_fee_per_gas, max_fee_p
     # Serialize the transaction using RLP
     serialized_tx = tx_type + rlp.encode(tx)
 
-    print("--- SERIALIZED")
-    print(serialized_tx)
-
     # Compute the transaction hash using Keccak-256
     tx_hash = keccak(serialized_tx)
     
     # Return the transaction hash in hexadecimal format
-    return to_hex(tx_hash)
+    return to_hex(tx_hash), serialized_tx
     
+
+def get_tx_body_and_from(tx_hash):
+    web3 = Web3(Web3.HTTPProvider(ZKSYNC_URL))    
+    # Check if connected successfully
+    if not web3.is_connected():
+        print("Failed to connect to zkSync node.")
+        raise
+    tx = web3.eth.get_transaction(tx_hash)
+
+    if tx.type != 2:
+        raise "Only type 2 transactions are supported"
+
+
+    computed_tx_hash, serialized_tx = compute_eip1559_tx_hash(tx.chainId, tx.nonce, tx.maxPriorityFeePerGas, tx.maxFeePerGas, tx.gas, tx.to, tx.value, tx.input.hex(), [],
+                                 tx.v, tx.r, tx.s)
+    
+    if computed_tx_hash != tx_hash:
+        raise "TX computation failed"
+
+
+    return (serialized_tx.hex(), tx.get('from'), tx.get('to'), tx.input.hex())
+
 
 
 def get_raw_tx_by_hash(tx_hash):
@@ -232,6 +250,8 @@ def get_raw_tx_by_hash(tx_hash):
         raise
     raw_tx = web3.eth.get_transaction(tx_hash)
 
+    print(raw_tx)
+
     #really_raw_tx = web3.eth.get_raw_transaction(tx_hash)
 
 
@@ -241,18 +261,19 @@ def get_raw_tx_by_hash(tx_hash):
 
 
     
-    h = compute_eth_tx_hash(raw_tx.nonce, raw_tx.gasPrice, raw_tx.gas, raw_tx.to, raw_tx.value, raw_tx.input.hex(), raw_tx.v, raw_tx.r, raw_tx.s)
-    print("First hash " + h)
-    h = compute_eth_tx_hash_wihtout_sign(raw_tx.nonce, raw_tx.gasPrice, raw_tx.gas, raw_tx.to, raw_tx.value, raw_tx.input.hex())
-    print("First hash (no sign) " + h)
+    #h = compute_eth_tx_hash(raw_tx.nonce, raw_tx.gasPrice, raw_tx.gas, raw_tx.to, raw_tx.value, raw_tx.input.hex(), raw_tx.v, raw_tx.r, raw_tx.s)
+    #print("First hash " + h)
+    #h = compute_eth_tx_hash_wihtout_sign(raw_tx.nonce, raw_tx.gasPrice, raw_tx.gas, raw_tx.to, raw_tx.value, raw_tx.input.hex())
+    #print("First hash (no sign) " + h)
+
 
     h2 = compute_eip1559_tx_hash(raw_tx.chainId, raw_tx.nonce, raw_tx.maxPriorityFeePerGas, raw_tx.maxFeePerGas, raw_tx.gas, raw_tx.to, raw_tx.value, raw_tx.input.hex(), [],
                                  raw_tx.v, raw_tx.r, raw_tx.s)
     print("Second hash " + h2)
 
-    h2 = compute_eip1559_tx_hash_without_sign(raw_tx.chainId, raw_tx.nonce, raw_tx.maxPriorityFeePerGas, raw_tx.maxFeePerGas, raw_tx.gas, raw_tx.to, raw_tx.value, raw_tx.input.hex(), []
-                                 )
-    print("Second hash (no sigh)" + h2)
+    #h2 = compute_eip1559_tx_hash_without_sign(raw_tx.chainId, raw_tx.nonce, raw_tx.maxPriorityFeePerGas, raw_tx.maxFeePerGas, raw_tx.gas, raw_tx.to, raw_tx.value, raw_tx.input.hex(), []
+    #                             )
+    #print("Second hash (no sigh)" + h2)
 
 
 
@@ -398,6 +419,13 @@ def get_batch_root_hash(l1_batch):
 def prove_tx_inclusion_in_chain(tx):
     result = {"transaction_id": tx, "debug": {}}
 
+    (tx_body, tx_from, tx_to, tx_calldata) = get_tx_body_and_from(tx)
+
+    result["txBody"] =  tx_body
+    result["txFrom"] = tx_from
+    result["txTo"] = tx_to
+    result["txCalldata"] = tx_calldata
+
     block_info = verify_tx_inclusion_in_block(tx)
 
     block_number = block_info['blockNumber']
@@ -410,9 +438,6 @@ def prove_tx_inclusion_in_chain(tx):
     result['parentHash'] = block_info['parentHash'].hex()
     result['blockTimestamp'] = block_info['blockTimestamp']
     result['batchNumber'] = block_info['batchNumber']
-
-    
-
 
 
     storage_proof = get_storage_proof(utils.SYSTEM_CONTEXT_ADDRESS, utils.get_key_for_recent_block(block_number), batch)
@@ -455,24 +480,21 @@ def main():
 
 
 
-    print(get_raw_tx_by_hash("0x4ce495a7b7841ccf3addcd16cb7b1903facf8060e81a34e0949143007210fa9a"))
+    #print(get_raw_tx_by_hash("0x4ce495a7b7841ccf3addcd16cb7b1903facf8060e81a34e0949143007210fa9a"))
+
+    #print(get_raw_tx_by_hash("0xbe8d5c1eba50aec04e07d627fb2bfcf71cafd242c9e231681ffc5aba12cc385c"))
+
+    #print("---------")
 
     #print(get_raw_tx_by_hash("0x98a6b956b5f72d3221f437aa7941243270a18e6969432f8b221b6cd7212d0a41"))
-    print("---------")
 
     #print(get_raw_tx_by_hash("0x7cac7b9a01a70d50996097876d8006e7cfbf170a32d85097c80b1e53cb76b940"))
     
     #
-    print(get_raw_tx_by_hash("0x13f64c6054f093575728fb88b79336bbfd7bec13f1c86cff0cf31193b31170de"))
+    #print(get_raw_tx_by_hash("0x13f64c6054f093575728fb88b79336bbfd7bec13f1c86cff0cf31193b31170de"))
 
     #print(get_raw_tx_by_hash("0x7c2447b1592ff8d20178c8cbc1158bb1e21c5ad297169ba0d3bd2242c0624a4b"))
-
-
-    
-
-    return
-
-
+   
     # Check if at least one argument is provided
     if len(sys.argv) > 1:
         transaction_id = sys.argv[1]
