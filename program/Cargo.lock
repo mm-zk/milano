@@ -512,20 +512,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "program"
-version = "0.1.0"
-dependencies = [
- "blake2",
- "ethabi",
- "hex",
- "k256",
- "rlp",
- "serde",
- "serde_json",
- "tiny-keccak",
-]
-
-[[package]]
 name = "quote"
 version = "1.0.36"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -802,6 +788,20 @@ dependencies = [
  "indexmap",
  "toml_datetime",
  "winnow",
+]
+
+[[package]]
+name = "tx_verifier"
+version = "0.1.0"
+dependencies = [
+ "blake2",
+ "ethabi",
+ "hex",
+ "k256",
+ "rlp",
+ "serde",
+ "serde_json",
+ "tiny-keccak",
 ]
 
 [[package]]
