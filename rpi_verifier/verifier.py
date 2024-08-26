@@ -39,6 +39,11 @@ VK_COSET_SHIFT = 5
 VK_QCP_0_X = 15094628898981014851230294832922767350330234022809606393203152940416977514848
 VK_QCP_0_Y = 3056768420174140117719575194791127678251100292295026433168587815162498899224
 
+VK_DOMAIN_SIZE = 33554432
+VK_INV_DOMAIN_SIZE = 21888242219518804655518433051623070663413851959604507555939307129453691614729;
+
+VK_INDEX_COMMIT_API_0 = 20988588
+
 
 # Setup
 def setup():
@@ -99,6 +104,43 @@ def reduce_bytes(input):
 
 
 
+
+def expmod(x, y, z):
+    result = 1
+    x = x % z  # Update x if it is more than or equal to z
+
+    if x == 0:
+        return 0  # In case x is divisible by z
+
+    while y > 0:
+        # If y is odd, multiply x with the result
+        if y % 2 == 1:
+            result = (result * x) % z
+
+        # y must be even now
+        y = y // 2
+        x = (x * x) % z  # Change x to x^2
+    return result
+
+def mod_inverse(a, z):
+    # Helper function using the Extended Euclidean Algorithm
+    def extended_gcd(a, b):
+        if a == 0:
+            return b, 0, 1
+        gcd, x1, y1 = extended_gcd(b % a, a)
+        x = y1 - (b // a) * x1
+        y = x1
+        return gcd, x, y
+
+    gcd, x, y = extended_gcd(a, z)
+
+    if gcd != 1:
+        raise ValueError("Modular inverse does not exist because gcd(a, z) != 1")
+    else:
+        # x might be negative, so we take it modulo z to make it positive
+        return x % z
+
+
 # Now entering actual verify function.
 def verify_plonk(proof, public_values):
 
@@ -112,16 +154,138 @@ def verify_plonk(proof, public_values):
     gamma_not_reduced = compute_gamma(proof, public_values)
     beta_not_reduced = compute_beta(gamma_not_reduced)
     alfa_not_reduced = compute_alfa(proof, beta_not_reduced)
+    alfa_int = int.from_bytes(reduce_bytes(alfa_not_reduced), 'big')
     zeta_not_reduced = compute_zeta(proof, alfa_not_reduced)
 
     zeta = reduce_bytes(zeta_not_reduced)
-    print("zeta reduced", int.from_bytes(zeta, byteorder='big'))
+    zeta_int = int.from_bytes(zeta, byteorder='big')
+    print("zeta reduced", zeta_int)
+
+
+
+    zeta_power_n_minus_one = (expmod(zeta_int, VK_DOMAIN_SIZE, PRIME) + (PRIME - 1)) % PRIME
+
+    print("zeta power ", zeta_power_n_minus_one)
+
+    # l_pi - public inputs + size
+    # now compute 2 lagranges at 'zeta'
+
+    zn = zeta_power_n_minus_one * VK_INV_DOMAIN_SIZE
+
+    w_ = 1
+    lagranges = [0]*len(public_values)
+
+    for i in range(len(public_values)):
+        lagranges[i]  = (zeta_int + PRIME - w_) % PRIME
+        w_ = (w_ * VK_OMEGA) % PRIME
+
+    for i in range(len(public_values)):
+        lagranges[i] = mod_inverse(lagranges[i], PRIME)
+
+    w_ = 1
+    for i in range(len(public_values)):
+        lagranges[i] = (((lagranges[i] * zn) % PRIME) * w_) % PRIME
+        w_ = (w_ * VK_OMEGA) % PRIME
+
+
+    # now compute the commitment. lagrange * values.
+    l_pi = 0
+    for i in range(len(public_values)):
+        l_pi += (lagranges[i] * int.from_bytes(public_values[i], 'big')) % PRIME
+
+    l_pi = l_pi % PRIME
+
+
+    # now l_pi_commit
+
+    PROOF_BSB_COMMITMENTS = 0x320
+    bsb_x = int.from_bytes(proof[PROOF_BSB_COMMITMENTS: PROOF_BSB_COMMITMENTS+32], 'big')
+    bsb_y = int.from_bytes(proof[PROOF_BSB_COMMITMENTS + 32: PROOF_BSB_COMMITMENTS + 64], 'big')
+
+    print("bsb ", bsb_x, " ", bsb_y)
+    HASH_FR_SIZE_DOMAIN = 11
+    HASH_FR_LEN_IN_BYTES = 48
+
+
+    hash_fr_part1 = ((b'\x00' * 64) + proof[PROOF_BSB_COMMITMENTS: PROOF_BSB_COMMITMENTS+64]  + b'\x00' + HASH_FR_LEN_IN_BYTES.to_bytes(1, 'big') + b'\x00' + "BSB22-Plonk".encode('utf-8')
+            + HASH_FR_SIZE_DOMAIN.to_bytes(1, 'big'))
+    
+    b0 = hashlib.sha256(hash_fr_part1).digest()
+    
+    hash_fr_part2 = (hashlib.sha256(hash_fr_part1).digest() + b'\x01' +  "BSB22-Plonk".encode('utf-8') + HASH_FR_SIZE_DOMAIN.to_bytes(1, 'big')) 
+
+
+    b1 = hashlib.sha256(hash_fr_part2).digest()
+    b1_int = int.from_bytes(b1, 'big')
+
+    print("b1 ", b1_int)
+
+    hash_fr_part3 = ((int.from_bytes(b0, 'big')^int.from_bytes(b1, 'big')).to_bytes(32, 'big') + b'\x02' + "BSB22-Plonk".encode('utf-8') + HASH_FR_SIZE_DOMAIN.to_bytes(1, 'big'))
+
+    b2 = hashlib.sha256(hash_fr_part3).digest()
+    b2_int = int.from_bytes(b2, 'big')
+
+    print("b2 ", b2_int)
+
+    h_fr = ((b1_int << 128) + (b2_int >> 128)) % PRIME
+
+    print("h_fr ", h_fr)
+
+    #now compute i-th langrange
+    ith = len(public_values) + VK_INDEX_COMMIT_API_0
+
+    w = expmod(VK_OMEGA, ith, PRIME)
+    i = (zeta_int - w) % PRIME
+    w = (w * VK_INV_DOMAIN_SIZE) % PRIME
+    i = expmod(i, PRIME-2, PRIME)
+    w = w * i % PRIME
+    res = (w * zeta_power_n_minus_one) % PRIME
+
+    print("ith langrage ", res)
+
+    l_pi_commit = res * h_fr % PRIME
+
+    print("l_pi commit ", l_pi_commit)
+
+    l_pi = (l_pi + l_pi_commit) % PRIME
+
+    print("final l_pi ", l_pi)
+
+
+    # Now alpha square langrange.
+
+    
+    
+    den1 = (((expmod((zeta_int - 1)%PRIME, PRIME-2, PRIME) * VK_INV_DOMAIN_SIZE % PRIME) * zeta_power_n_minus_one) % PRIME)
+    alfa_square_lagrange = ((den1 * alfa_int % PRIME) *alfa_int % PRIME)
+
+    print("alfa square lagrange ", alfa_square_lagrange)
+
+    
 
 
 
 
 
-    # Then derive the beta, gamma etc - a.k.a sha256 hashes 
+
+    
+
+    
+
+
+    # now compute hash to field
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
