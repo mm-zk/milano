@@ -3,7 +3,7 @@ import json
 from py_ecc import bn128
 
 #from py_ecc.bn128 import FQ, FQ2
-from py_ecc.bn128.bn128_curve import G1, G2, add, multiply, FQ
+from py_ecc.bn128.bn128_curve import G1, G2, add, multiply, FQ, FQ2, FQ12
 import hashlib
 
 from eth_utils import to_bytes, keccak, to_hex
@@ -44,6 +44,17 @@ VK_INV_DOMAIN_SIZE = 21888242219518804655518433051623070663413851959604507555939
 
 VK_INDEX_COMMIT_API_0 = 20988588
 
+
+
+G2_SRS_0_X_0 = 11559732032986387107991004021392285783925812861821192530917403151452391805634
+G2_SRS_0_X_1 = 10857046999023057135944570762232829481370756359578518086990519993285655852781
+G2_SRS_0_Y_0 = 4082367875863433681332203403145435568316851327593401208105741076214120093531
+G2_SRS_0_Y_1 = 8495653923123431417604973247489272438418190587263600148770280649306958101930
+
+G2_SRS_1_X_0 = 15805639136721018565402881920352193254830339253282065586954346329754995870280
+G2_SRS_1_X_1 = 19089565590083334368588890253123139704298730990782503769911324779715431555531
+G2_SRS_1_Y_0 = 9779648407879205346559610309258181044130619080926897934572699915909528404984
+G2_SRS_1_Y_1 = 6779728121489434657638426458390319301070371227460768374343986326751507916979
 
 # Setup
 def setup():
@@ -144,6 +155,10 @@ def mod_inverse(a, z):
 def get_uint256_from_proof(proof, position):
     return int.from_bytes(proof[position: position + 32], 'big')
 
+
+def get_ec_from_proof(proof, position):
+    return (FQ(get_uint256_from_proof(proof, position)),
+     FQ(get_uint256_from_proof(proof, position + 32)))
 
 def mulmod(a, b):
     return (a * b) % PRIME
@@ -492,49 +507,89 @@ def verify_plonk(proof, public_values):
 
     print("claimed vals ", claimed_values)
     print("folded dig", folded_digests)                               
-    
-    
 
 
+    # Grande finale - verify multipoint
 
+    PROOF_BATCH_OPENING_AT_ZETA_X = 0x280
+    PROOF_BATCH_OPENING_AT_ZETA_Y = 0x2a0
+    PROOF_OPENING_AT_ZETA_OMEGA_X = 0x2c0
+    PROOF_OPENING_AT_ZETA_OMEGA_Y = 0x2e0
 
+    batch_verify_random_input = (int(folded_digests[0]).to_bytes(32, 'big')
+                                + int(folded_digests[1]).to_bytes(32, 'big')
+                                + proof[PROOF_BATCH_OPENING_AT_ZETA_X: PROOF_BATCH_OPENING_AT_ZETA_X+32]
+                                + proof[PROOF_BATCH_OPENING_AT_ZETA_Y: PROOF_BATCH_OPENING_AT_ZETA_Y+32]
+                                + proof[PROOF_GRAND_PRODUCT_COMMITMENT_X: PROOF_GRAND_PRODUCT_COMMITMENT_X+32]
+                                + proof[PROOF_GRAND_PRODUCT_COMMITMENT_Y: PROOF_GRAND_PRODUCT_COMMITMENT_Y+32]
+                                + proof[PROOF_OPENING_AT_ZETA_OMEGA_X: PROOF_OPENING_AT_ZETA_OMEGA_X+32]
+                                + proof[PROOF_OPENING_AT_ZETA_OMEGA_Y: PROOF_OPENING_AT_ZETA_OMEGA_Y+32]
+                                + zeta
+                                + gamma_kzg.to_bytes(32, 'big')        
+                                )
+    batch_verify_random = int.from_bytes(hashlib.sha256(batch_verify_random_input).digest(), 'big') % PRIME
 
-
-
-
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-    
-
+    print("batch ver random", batch_verify_random)
 
     
+    folded_quotients = get_ec_from_proof(proof, PROOF_BATCH_OPENING_AT_ZETA_X)
+
+    folded_quotients = bn128.add(folded_quotients,
+                                 bn128.multiply(get_ec_from_proof(proof, PROOF_OPENING_AT_ZETA_OMEGA_X),                                     
+                                     batch_verify_random
+                                 ))
+    
+    folded_digests = bn128.add(folded_digests, bn128.multiply(get_ec_from_proof(proof, PROOF_GRAND_PRODUCT_COMMITMENT_X), batch_verify_random))
+
+    # a.k.a folded evals
+    claimed_values = (claimed_values + (get_uint256_from_proof(proof, PROOF_GRAND_PRODUCT_AT_ZETA_OMEGA) * batch_verify_random)) % PRIME
+
+    print("claimed vals", claimed_values)
+
+    G1_SRS_X = 14312776538779914388377568895031746459131577658076416373430523308756343304251
+    G1_SRS_Y = 11763105256161367503191792604679297387056316997144156930871823008787082098465
+
+    folded_evals_commit = bn128.multiply((FQ(G1_SRS_X), FQ(G1_SRS_Y)), claimed_values)
+
+    print("Folded evals commit ", folded_evals_commit)
+    P_MOD = 21888242871839275222246405745257275088696311157297823662689037894645226208583
+    folded_evals_commit = (folded_evals_commit[0], P_MOD - folded_evals_commit[1])
+
+    folded_digests = bn128.add(folded_digests, folded_evals_commit)
+
+    folded_points_quotients = bn128.multiply(get_ec_from_proof(proof, PROOF_BATCH_OPENING_AT_ZETA_X), zeta_int)
+    zeta_omega = mulmod(zeta_int, VK_OMEGA)
+    batch_verify_random = mulmod(batch_verify_random, zeta_omega)
+    folded_points_quotients = bn128.add(folded_points_quotients,
+        bn128.multiply(
+            get_ec_from_proof(proof, PROOF_OPENING_AT_ZETA_OMEGA_X),
+            batch_verify_random
+        )
+    )
+    folded_digests = bn128.add(folded_digests, folded_points_quotients)
+
+    folded_quotients = (folded_quotients[0], P_MOD - folded_quotients[1])
+
+    print("folded digests", folded_digests)
+    print("folded quot", folded_quotients)
+
+
+    G2_SRS0 = (FQ2([G2_SRS_0_X_0, G2_SRS_0_X_1]), FQ2([G2_SRS_0_Y_0, G2_SRS_0_Y_1]))
+    G2_SRS1 = (FQ2([G2_SRS_1_X_0, G2_SRS_1_X_1]), FQ2([G2_SRS_1_Y_0, G2_SRS_1_Y_1]))
+
+
+    first_pairing = bn128.pairing(G2_SRS0, folded_digests)    
+    second_pairing = bn128.pairing(G2_SRS1, folded_quotients)
+    pairing_product = FQ12.one()
+    pairing_product *= first_pairing
+    pairing_product *= second_pairing
+
+
+
 
     
 
-
-    # now compute hash to field
-
-
-
-
-
-
-
-
-
+    print("*** IS VALID --- ", pairing_product == FQ12.one())
 
 
 
@@ -573,3 +628,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
