@@ -349,9 +349,85 @@ def verify_plonk(proof, public_values):
     folded_h = compute_fold_h(proof, zeta_int)
     print("folded h final ", folded_h) 
 
-
-
     ### Commitment linearized polynomial
+
+    u = mulmod(get_uint256_from_proof(proof, PROOF_GRAND_PRODUCT_AT_ZETA_OMEGA), beta_int)
+
+    v = (mulmod(get_uint256_from_proof(proof, PROOF_S1_AT_ZETA), beta_int) + get_uint256_from_proof(proof, PROOF_L_AT_ZETA) + gamma_int) % PRIME
+
+    w = (mulmod(beta_int, get_uint256_from_proof(proof, PROOF_S2_AT_ZETA)) + get_uint256_from_proof(proof, PROOF_R_AT_ZETA) + gamma_int) % PRIME
+
+    print("v ", v)
+    print("w ", w)
+
+    s1 = mulmod(mulmod(mulmod(u, v), w), alfa_int)
+    print("s1 ", s1)
+
+    VK_COSET_SHIFT = 5
+
+    u = (mulmod(beta_int, zeta_int) + get_uint256_from_proof(proof, PROOF_L_AT_ZETA) + gamma_int) % PRIME
+
+    v = (mulmod(mulmod(beta_int, zeta_int), VK_COSET_SHIFT) + get_uint256_from_proof(proof, PROOF_R_AT_ZETA) + gamma_int) % PRIME
+
+    w = (mulmod(mulmod(beta_int, zeta_int), VK_COSET_SHIFT*VK_COSET_SHIFT) + get_uint256_from_proof(proof, PROOF_O_AT_ZETA) + gamma_int) % PRIME
+
+    s2 = (mulmod(-mulmod(mulmod(u, v), w), alfa_int) + alfa_square_lagrange) % PRIME
+
+    print("s2 ", s2)
+
+    # and now the actual EC work
+    state_lin_pol = bn128.multiply((FQ(VK_QL_COM_X), FQ(VK_QL_COM_Y)), get_uint256_from_proof(proof, PROOF_L_AT_ZETA))
+
+    foo = bn128.multiply((FQ(VK_QR_COM_X), FQ(VK_QR_COM_Y)), get_uint256_from_proof(proof, PROOF_R_AT_ZETA))
+
+    rl = mulmod(get_uint256_from_proof(proof, PROOF_L_AT_ZETA), get_uint256_from_proof(proof, PROOF_R_AT_ZETA))
+
+    foo2 = bn128.multiply((FQ(VK_QM_COM_X), FQ(VK_QM_COM_Y)), rl)
+
+    foo3 = bn128.multiply((FQ(VK_QO_COM_X), FQ(VK_QO_COM_Y)), get_uint256_from_proof(proof, PROOF_O_AT_ZETA))
+
+    res = bn128.add(bn128.add(bn128.add(state_lin_pol, foo), foo2), foo3)
+    res = bn128.add((FQ(VK_QK_COM_X), FQ(VK_QK_COM_Y)), res)
+    print("res ", res)
+
+
+    PROOF_GRAND_PRODUCT_COMMITMENT_X = 0x220
+    PROOF_GRAND_PRODUCT_COMMITMENT_Y = 0x240
+
+    PROOF_OPENING_QCP_AT_ZETA = 0x300
+    PROOF_BSB_COMMITMENTS = 0x320
+    # VK_CUSTOM_GATES is 1.
+
+    res = bn128.add(res, bn128.multiply((FQ(bsb_x), FQ(bsb_y)), get_uint256_from_proof(proof, PROOF_OPENING_QCP_AT_ZETA)))
+
+
+    foo8 = bn128.multiply((FQ(VK_S3_COM_X), FQ(VK_S3_COM_Y)), s1)
+    foo9 = bn128.multiply((FQ(get_uint256_from_proof(proof, PROOF_GRAND_PRODUCT_COMMITMENT_X)),
+                           FQ(get_uint256_from_proof(proof, PROOF_GRAND_PRODUCT_COMMITMENT_Y))
+                           ), s2)
+    
+    lin_poly_x = bn128.add(bn128.add(bn128.add(res, foo8), foo9), folded_h)
+
+    print("lin poly x", lin_poly_x)
+
+
+
+
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     
 
 
