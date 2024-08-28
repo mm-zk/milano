@@ -410,7 +410,14 @@ def verify_plonk(proof, public_values):
 
     print("lin poly x", lin_poly_x)
 
+    
     PROOF_L_COM_X = 0x0
+    PROOF_L_COM_Y = 0x20
+    PROOF_R_COM_X = 0x40
+    PROOF_R_COM_Y = 0x60
+    PROOF_O_COM_X = 0x80
+    PROOF_O_COM_Y = 0xa0
+    
 
     ## Gamma KZG now (fiat shamir challenge)
 
@@ -437,7 +444,59 @@ def verify_plonk(proof, public_values):
     gamma_kzg = int.from_bytes(hashlib.sha256(kzg_gamma_challenge).digest(), 'big') % PRIME
     print('gamma kzg ', gamma_kzg)
 
+    ### Fold state
+
+    folded_digests = bn128.add(lin_poly_x,
+                               bn128.multiply((FQ(get_uint256_from_proof(proof, PROOF_L_COM_X)),
+                                              FQ(get_uint256_from_proof(proof, PROOF_L_COM_Y))),
+                                                gamma_kzg))
     
+    acc_gamma = gamma_kzg                             
+    claimed_values = state_open_linear_poly + mulmod(acc_gamma, get_uint256_from_proof(proof, PROOF_L_AT_ZETA))
+    acc_gamma = mulmod(acc_gamma, gamma_kzg)
+     
+
+    folded_digests = bn128.add(folded_digests,
+                               bn128.multiply((FQ(get_uint256_from_proof(proof, PROOF_R_COM_X)),
+                                                FQ(get_uint256_from_proof(proof, PROOF_R_COM_Y))),
+                                                acc_gamma))
+
+    claimed_values = (claimed_values +  mulmod(acc_gamma, get_uint256_from_proof(proof, PROOF_R_AT_ZETA))) % PRIME
+
+    acc_gamma = mulmod(acc_gamma, gamma_kzg)
+    
+    folded_digests = bn128.add(folded_digests,
+                               bn128.multiply((FQ(get_uint256_from_proof(proof, PROOF_O_COM_X)),
+                                                FQ(get_uint256_from_proof(proof, PROOF_O_COM_Y))),
+                                                acc_gamma))
+    claimed_values = (claimed_values +  mulmod(acc_gamma, get_uint256_from_proof(proof, PROOF_O_AT_ZETA))) % PRIME
+    acc_gamma = mulmod(acc_gamma, gamma_kzg)
+
+
+
+
+    folded_digests = bn128.add(folded_digests, bn128.multiply((FQ(VK_S1_COM_X), FQ(VK_S1_COM_Y)), acc_gamma))
+    claimed_values = (claimed_values +  mulmod(acc_gamma, get_uint256_from_proof(proof, PROOF_S1_AT_ZETA))) % PRIME
+    acc_gamma = mulmod(acc_gamma, gamma_kzg)
+
+
+    folded_digests = bn128.add(folded_digests, bn128.multiply((FQ(VK_S2_COM_X), FQ(VK_S2_COM_Y)), acc_gamma))
+    claimed_values = (claimed_values +  mulmod(acc_gamma, get_uint256_from_proof(proof, PROOF_S2_AT_ZETA))) % PRIME
+    acc_gamma = mulmod(acc_gamma, gamma_kzg)
+
+
+    folded_digests = bn128.add(folded_digests, bn128.multiply((FQ(VK_QCP_0_X), FQ(VK_QCP_0_Y)), acc_gamma))
+    claimed_values = (claimed_values +  mulmod(acc_gamma, get_uint256_from_proof(proof, PROOF_OPENING_QCP_AT_ZETA))) % PRIME
+    
+    print("acc gamma", acc_gamma)
+
+    print("claimed vals ", claimed_values)
+    print("folded dig", folded_digests)                               
+    
+    
+
+
+
 
 
 
