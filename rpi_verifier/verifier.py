@@ -574,8 +574,8 @@ def verify_plonk(proof, public_values):
     print("folded quot", folded_quotients)
 
 
-    G2_SRS0 = (FQ2([G2_SRS_0_X_0, G2_SRS_0_X_1]), FQ2([G2_SRS_0_Y_0, G2_SRS_0_Y_1]))
-    G2_SRS1 = (FQ2([G2_SRS_1_X_0, G2_SRS_1_X_1]), FQ2([G2_SRS_1_Y_0, G2_SRS_1_Y_1]))
+    G2_SRS0 = (FQ2([G2_SRS_0_X_1, G2_SRS_0_X_0]), FQ2([G2_SRS_0_Y_1, G2_SRS_0_Y_0]))
+    G2_SRS1 = (FQ2([G2_SRS_1_X_1, G2_SRS_1_X_0]), FQ2([G2_SRS_1_Y_1, G2_SRS_1_Y_0]))
 
 
     first_pairing = bn128.pairing(G2_SRS0, folded_digests)    
