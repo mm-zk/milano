@@ -3,7 +3,7 @@ import json
 from py_ecc import bn128
 
 #from py_ecc.bn128 import FQ, FQ2
-from py_ecc.bn128.bn128_curve import G1, G2, add, multiply
+from py_ecc.bn128.bn128_curve import G1, G2, add, multiply, FQ
 import hashlib
 
 from eth_utils import to_bytes, keccak, to_hex
@@ -141,6 +141,55 @@ def mod_inverse(a, z):
         return x % z
 
 
+def get_uint256_from_proof(proof, position):
+    return int.from_bytes(proof[position: position + 32], 'big')
+
+
+def mulmod(a, b):
+    return (a * b) % PRIME
+
+
+def compute_fold_h(proof, zeta_int): 
+    zeta_power_n_plus_two = expmod(zeta_int, VK_DOMAIN_SIZE + 2, PRIME)
+    zeta_power_n_minus_one = (expmod(zeta_int, VK_DOMAIN_SIZE, PRIME) + (PRIME - 1)) % PRIME
+
+
+
+    PROOF_H_0_X = 0xc0
+    PROOF_H_0_Y = 0xe0
+    PROOF_H_1_X = 0x100
+    PROOF_H_1_Y = 0x120
+
+    PROOF_H_2_X = 0x140
+    PROOF_H_2_Y = 0x160
+    
+
+    ## need 'ec_mul' 
+
+    h0_x = get_uint256_from_proof(proof, PROOF_H_0_X)
+    h0_y = get_uint256_from_proof(proof, PROOF_H_0_Y)
+    h0_point = (FQ(h0_x), FQ(h0_y))
+    h1_x = get_uint256_from_proof(proof, PROOF_H_1_X)
+    h1_y = get_uint256_from_proof(proof, PROOF_H_1_Y)
+    h1_point = (FQ(h1_x), FQ(h1_y))
+
+    h2_x = get_uint256_from_proof(proof, PROOF_H_2_X)
+    h2_y = get_uint256_from_proof(proof, PROOF_H_2_Y)
+    h2_point = (FQ(h2_x), FQ(h2_y))
+
+    folded_h = bn128.multiply(h2_point, zeta_power_n_plus_two)
+    print("folded h", folded_h)
+
+    folded_h_final = bn128.multiply(bn128.add(bn128.multiply(bn128.add(folded_h, h1_point), zeta_power_n_plus_two), h0_point), zeta_power_n_minus_one)
+
+    print("folded h final ", folded_h_final)
+
+    folded_h_final = (folded_h_final[0], -folded_h_final[1])
+    print("folded h final ", folded_h_final) 
+
+    return folded_h_final
+
+
 # Now entering actual verify function.
 def verify_plonk(proof, public_values):
 
@@ -152,7 +201,11 @@ def verify_plonk(proof, public_values):
     # Also not checking proof values (that they are smaller than PRIME -1)
 
     gamma_not_reduced = compute_gamma(proof, public_values)
+    gamma_int = int.from_bytes(reduce_bytes(gamma_not_reduced), 'big')
+
     beta_not_reduced = compute_beta(gamma_not_reduced)
+    beta_int = int.from_bytes(reduce_bytes(beta_not_reduced), 'big')
+
     alfa_not_reduced = compute_alfa(proof, beta_not_reduced)
     alfa_int = int.from_bytes(reduce_bytes(alfa_not_reduced), 'big')
     zeta_not_reduced = compute_zeta(proof, alfa_not_reduced)
@@ -261,11 +314,45 @@ def verify_plonk(proof, public_values):
 
     print("alfa square lagrange ", alfa_square_lagrange)
 
+
+    # Verify opening for linearised polynomial
+    PROOF_S1_AT_ZETA = 0x1e0; # Sσ1(zeta)
+    PROOF_S2_AT_ZETA = 0x200; # Sσ2(zeta)
+    PROOF_L_AT_ZETA = 0x180
+    PROOF_R_AT_ZETA = 0x1a0
+    PROOF_O_AT_ZETA = 0x1c0
+    PROOF_GRAND_PRODUCT_AT_ZETA_OMEGA = 0x260 # z(w*zeta)
+
+
+
+    
+    proof_s1 = get_uint256_from_proof(proof, PROOF_S1_AT_ZETA)
+    s1 = ((proof_s1 * beta_int) % PRIME + gamma_int + get_uint256_from_proof(proof, PROOF_L_AT_ZETA)) % PRIME
+
+    print("s1", s1)
+
+    s2 = ((beta_int * get_uint256_from_proof(proof, PROOF_S2_AT_ZETA)) % PRIME + gamma_int + get_uint256_from_proof(proof, PROOF_R_AT_ZETA)) % PRIME
+
+    print("s2", s2)
+    o = (gamma_int + get_uint256_from_proof(proof, PROOF_O_AT_ZETA)) % PRIME
+    
     
 
+    state_open_linear_poly = (PRIME - (mulmod(mulmod(mulmod(mulmod(s1, s2), o), alfa_int), get_uint256_from_proof(proof, PROOF_GRAND_PRODUCT_AT_ZETA_OMEGA))
+     + l_pi  - alfa_square_lagrange)) % PRIME
+    
+
+    print("state open lin poly ", state_open_linear_poly)
+
+    # Fold h
+
+    folded_h = compute_fold_h(proof, zeta_int)
+    print("folded h final ", folded_h) 
 
 
 
+    ### Commitment linearized polynomial
+    
 
 
     
