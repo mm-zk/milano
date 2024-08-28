@@ -410,6 +410,36 @@ def verify_plonk(proof, public_values):
 
     print("lin poly x", lin_poly_x)
 
+    PROOF_L_COM_X = 0x0
+
+    ## Gamma KZG now (fiat shamir challenge)
+
+    kzg_gamma_challenge = ("gamma".encode('utf-8') + zeta 
+                           + int(lin_poly_x[0]).to_bytes(32, 'big')
+                           + int(lin_poly_x[1]).to_bytes(32, 'big')
+                           + proof[PROOF_L_COM_X: PROOF_L_COM_X+0xc0]
+                           + VK_S1_COM_X.to_bytes(32, 'big')
+                           + VK_S1_COM_Y.to_bytes(32, 'big')
+                           + VK_S2_COM_X.to_bytes(32, 'big')
+                           + VK_S2_COM_Y.to_bytes(32, 'big')
+                           + VK_QCP_0_X.to_bytes(32, 'big')
+                           + VK_QCP_0_Y.to_bytes(32, 'big')
+                           + state_open_linear_poly.to_bytes(32, 'big')
+                           + proof[PROOF_L_AT_ZETA: PROOF_L_AT_ZETA + 32]
+                           + proof[PROOF_R_AT_ZETA: PROOF_R_AT_ZETA + 32]
+                           + proof[PROOF_O_AT_ZETA: PROOF_O_AT_ZETA + 32]
+                           + proof[PROOF_S1_AT_ZETA: PROOF_S1_AT_ZETA + 32]
+                           + proof[PROOF_S2_AT_ZETA: PROOF_S2_AT_ZETA + 32]
+                           + proof[PROOF_OPENING_QCP_AT_ZETA: PROOF_OPENING_QCP_AT_ZETA + 32]
+                           + proof[PROOF_GRAND_PRODUCT_AT_ZETA_OMEGA: PROOF_GRAND_PRODUCT_AT_ZETA_OMEGA + 32]
+                           )
+
+    gamma_kzg = int.from_bytes(hashlib.sha256(kzg_gamma_challenge).digest(), 'big') % PRIME
+    print('gamma kzg ', gamma_kzg)
+
+    
+
+
 
 
 
