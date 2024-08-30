@@ -103,5 +103,8 @@ fn main() {
         // Verify the proof.
         client.verify(&proof, &vk).expect("failed to verify proof");
         println!("Successfully verified proof!");
+
+        println!("Proof saved to large_proof.bin");
+        proof.save("large_proof.bin").unwrap();
     }
 }

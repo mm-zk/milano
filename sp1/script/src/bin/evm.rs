@@ -11,7 +11,11 @@ use clap::Parser;
 use fibonacci_lib::PublicValuesStruct;
 use serde::{Deserialize, Serialize};
 use sp1_sdk::{HashableKey, ProverClient, SP1ProofWithPublicValues, SP1Stdin, SP1VerifyingKey};
-use std::path::PathBuf;
+use std::{
+    fs::File,
+    io::{BufReader, Read},
+    path::PathBuf,
+};
 
 /// The ELF (executable and linkable format) file for the Succinct RISC-V zkVM.
 pub const FIBONACCI_ELF: &[u8] = include_bytes!("../../../elf/riscv32im-succinct-zkvm-elf");
@@ -31,7 +35,7 @@ struct SP1FibonacciProofFixture {
     sender: String,
     receiver: String,
     token: String,
-    amount: u64,
+    amount: String,
     tx_id: String,
     vkey: String,
     public_values: String,
@@ -56,6 +60,13 @@ fn main() {
     stdin.write(&args.n);
 
     println!("n: {}", args.n);
+
+    let file = File::open("../../output.json").unwrap();
+    let mut reader = BufReader::new(file);
+    let mut data = String::new();
+    reader.read_to_string(&mut data).unwrap();
+
+    stdin.write(&data);
 
     // Generate the proof.
     let proof = client
@@ -84,7 +95,7 @@ fn create_plonk_fixture(proof: &SP1ProofWithPublicValues, vk: &SP1VerifyingKey) 
         sender: sender.to_string(),
         receiver: receiver.to_string(),
         token: token.to_string(),
-        amount: amount.try_into().unwrap(),
+        amount: amount.to_string(),
         tx_id: tx_id.to_string(),
         vkey: vk.bytes32().to_string(),
         public_values: format!("0x{}", hex::encode(bytes)),

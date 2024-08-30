@@ -2,12 +2,10 @@ import json
 
 from py_ecc import bn128
 
-#from py_ecc.bn128 import FQ, FQ2
 from py_ecc.bn128.bn128_curve import G1, G2, add, multiply, FQ, FQ2, FQ12
 import hashlib
 
 from eth_utils import to_bytes, keccak, to_hex
-
 
 
 # Finite field prime (bn128)
@@ -43,8 +41,6 @@ VK_DOMAIN_SIZE = 33554432
 VK_INV_DOMAIN_SIZE = 21888242219518804655518433051623070663413851959604507555939307129453691614729;
 
 VK_INDEX_COMMIT_API_0 = 20988588
-
-
 
 G2_SRS_0_X_0 = 11559732032986387107991004021392285783925812861821192530917403151452391805634
 G2_SRS_0_X_1 = 10857046999023057135944570762232829481370756359578518086990519993285655852781
@@ -112,7 +108,6 @@ def compute_zeta(proof, alfa):
 
 def reduce_bytes(input):
     return (int.from_bytes(input, byteorder='big') % PRIME).to_bytes(32, 'big')
-
 
 
 
@@ -584,20 +579,9 @@ def verify_plonk(proof, public_values):
     pairing_product *= first_pairing
     pairing_product *= second_pairing
 
-
-
-
-    
-
     print("*** IS VALID --- ", pairing_product == FQ12.one())
 
-
-
-
-
-
-
-    
+    return pairing_product == FQ12.one()
 
 
 def verify(data):
@@ -608,15 +592,27 @@ def verify(data):
     proof_bytes = proof_bytes[4:]
     inputs = bytes.fromhex(data['vkey'][2:])
 
-    
     public_values = bytes.fromhex(data['publicValues'][2:])
+
+    # check that public values are matching other entries in json
+    sender = bytes.fromhex(data['sender'][2:]).rjust(32, b'\x00')
+    receiver = bytes.fromhex(data['receiver'][2:]).rjust(32, b'\x00')
+    token = bytes.fromhex(data['token'][2:]).rjust(32, b'\x00')
+    
+    amount = int(data["amount"]).to_bytes(32, 'big')
+    tx_id = bytes.fromhex(data['txId'][2:]).rjust(32, b'\x00')
+
+    computed_public_values = b"".join([sender, receiver, token, amount, tx_id])
+
+    if public_values != computed_public_values:
+        raise Exception("Public values are not correct")
 
 
     public_values_hash = (int.from_bytes(hashlib.sha256(public_values).digest(), 'big') &( (1<<253) - 1)).to_bytes(32, 'big')
     
-    verify_plonk(proof_bytes, [inputs, public_values_hash])
-
-    pass
+    proof_valid = verify_plonk(proof_bytes, [inputs, public_values_hash])
+    if not proof_valid:
+        raise Exception("Proof is not valid")
 
 
 def main():
