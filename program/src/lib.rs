@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use blake2::{Blake2s, Digest};
 use ethabi::ethereum_types::U256;
 use ethabi::{Address, Function, Param, ParamType, Token};
@@ -42,6 +44,31 @@ pub struct TxProof {
 
     #[serde(rename = "txBody")]
     tx_body: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct NFTProof {
+    #[serde(rename = "nftContract")]
+    pub nft_contract: String,
+
+    #[serde(rename = "nftOwner")]
+    pub nft_owner: String,
+
+    #[serde(rename = "nftUsermapPosition")]
+    pub nft_usermap_position: u64,
+    #[serde(rename = "readSlot")]
+    pub read_slot: String,
+
+    #[serde(rename = "storageProof")]
+    storage_proof: StorageProof,
+    #[serde(rename = "batchRoothash")]
+    batch_root_hash: String,
+
+    #[serde(rename = "batchCommitTx")]
+    batch_commit_tx: String,
+
+    #[serde(rename = "batchNumber")]
+    batch_number: u64,
 }
 
 #[derive(Deserialize, Debug)]
@@ -651,6 +678,52 @@ pub fn verify_proof(proof: &TxProof) -> Result<(), String> {
     Ok(())
 }
 
+pub fn compute_storage_slot(owner: &str, position: u64) -> Vec<u8> {
+    let owner = U256::from_str_radix(owner, 16).unwrap();
+    let position = U256::from(position);
+    let mut first = [0u8; 32];
+
+    owner.to_big_endian(&mut first);
+    let mut second = [0u8; 32];
+    position.to_big_endian(&mut second);
+
+    compute_keccak(&[first, second].concat()).to_vec()
+}
+
+pub fn verify_nft_proof(proof: &NFTProof) -> Result<(), String> {
+    let computed_slot = compute_storage_slot(&proof.nft_owner, proof.nft_usermap_position);
+
+    if computed_slot != hex_str_to_bytes(&proof.read_slot) {
+        return Err("Computed slot differs".to_owned());
+    }
+
+    let storage_proof_value = U256::from_str_radix(&proof.storage_proof.value, 16).unwrap();
+    if storage_proof_value != U256::one() {
+        return Err("Invalid value in storage proof".to_owned());
+    }
+
+    proof
+        .storage_proof
+        .verify_storage_proof(
+            &proof.nft_contract,
+            &proof.read_slot,
+            hex_str_to_bytes(&proof.batch_root_hash),
+        )
+        .map_err(|e| format!("STORAGE VERIFICATION FAILED {:?}", e))?;
+
+    // Now that we know that storage matches, we have to check that this batch_root_hash was
+    // really included.
+
+    verify_batch_commit_tx(
+        &proof.batch_commit_tx,
+        proof.batch_number,
+        &proof.batch_root_hash,
+    )
+    .map_err(|e| format!("COMMIT VERIFICATION FAILED: {}", e))?;
+
+    Ok(())
+}
+
 #[derive(Debug)]
 pub struct TokenTransfer {
     pub from: Address,
@@ -673,6 +746,27 @@ impl TryFrom<TxProof> for TokenTransfer {
             token: Address::from_slice(&hex_str_to_bytes(&value.tx_to)),
             to: Address::from_slice(&calldata[16..36]),
             amount: U256::from_big_endian(&calldata[36..68]),
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct NFTOwnership {
+    pub nft: Address,
+    pub owner: Address,
+    pub batch: u64,
+    pub position: u64,
+}
+
+impl TryFrom<NFTProof> for NFTOwnership {
+    type Error = String;
+
+    fn try_from(value: NFTProof) -> Result<Self, Self::Error> {
+        Ok(Self {
+            nft: Address::from_slice(&hex_str_to_bytes(&value.nft_contract)),
+            owner: Address::from_slice(&hex_str_to_bytes(&value.nft_owner)),
+            batch: value.batch_number,
+            position: value.nft_usermap_position,
         })
     }
 }

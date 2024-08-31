@@ -10,6 +10,11 @@ def get_key_for_recent_block(block_number):
     MAPPING_RECENT_BLOCK_POSITION_IN_SYSTEM_CONTRACT = 11
     return format(block_number % 257 + MAPPING_RECENT_BLOCK_POSITION_IN_SYSTEM_CONTRACT, "064x")
 
+def get_key_for_mapping_slot(slot_key: int, mapping_key: bytes) -> str:
+    print(f"mapping key {mapping_key}")
+    return Web3.keccak(mapping_key.rjust(32, b'\x00') + slot_key.to_bytes(32, 'big')).hex()[2:]
+    
+
 
 def compute_transaction_rolling_hash(transaction_hashes):
     prev = "0x" + "00" * 32

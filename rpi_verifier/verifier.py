@@ -595,6 +595,7 @@ def verify(data):
     public_values = bytes.fromhex(data['publicValues'][2:])
 
     # check that public values are matching other entries in json
+    struct_type = int(data["structType"]).to_bytes(32, 'big')
     sender = bytes.fromhex(data['sender'][2:]).rjust(32, b'\x00')
     receiver = bytes.fromhex(data['receiver'][2:]).rjust(32, b'\x00')
     token = bytes.fromhex(data['token'][2:]).rjust(32, b'\x00')
@@ -602,7 +603,13 @@ def verify(data):
     amount = int(data["amount"]).to_bytes(32, 'big')
     tx_id = bytes.fromhex(data['txId'][2:]).rjust(32, b'\x00')
 
-    computed_public_values = b"".join([sender, receiver, token, amount, tx_id])
+
+    nft = bytes.fromhex(data['nft'][2:]).rjust(32, b'\x00')
+    owner = bytes.fromhex(data['owner'][2:]).rjust(32, b'\x00')
+    batch_number = int(data["batchNumber"]).to_bytes(32, 'big')
+    slot_position = int(data["slotPosition"]).to_bytes(32, 'big')
+
+    computed_public_values = b"".join([struct_type, sender, receiver, token, amount, tx_id, nft, owner, batch_number, slot_position])
 
     if public_values != computed_public_values:
         raise Exception("Public values are not correct")
@@ -624,4 +631,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 

@@ -32,11 +32,16 @@ struct EVMArgs {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SP1FibonacciProofFixture {
+    struct_type: String,
     sender: String,
     receiver: String,
     token: String,
     amount: String,
     tx_id: String,
+    nft: String,
+    owner: String,
+    batch_number: String,
+    slot_position: String,
     vkey: String,
     public_values: String,
     proof: String,
@@ -57,11 +62,8 @@ fn main() {
 
     // Setup the inputs.
     let mut stdin = SP1Stdin::new();
-    stdin.write(&args.n);
 
-    println!("n: {}", args.n);
-
-    let file = File::open("../../output.json").unwrap();
+    let file = File::open("../output_nft.json").unwrap();
     let mut reader = BufReader::new(file);
     let mut data = String::new();
     reader.read_to_string(&mut data).unwrap();
@@ -83,11 +85,16 @@ fn create_plonk_fixture(proof: &SP1ProofWithPublicValues, vk: &SP1VerifyingKey) 
     // Deserialize the public values.
     let bytes = proof.public_values.as_slice();
     let PublicValuesStruct {
+        struct_type,
         sender,
         receiver,
         token,
         amount,
         tx_id,
+        nft,
+        owner,
+        batch_number,
+        slot_position,
     } = PublicValuesStruct::abi_decode(bytes, false).unwrap();
 
     // Create the testing fixture so we can test things end-to-end.
@@ -100,6 +107,11 @@ fn create_plonk_fixture(proof: &SP1ProofWithPublicValues, vk: &SP1VerifyingKey) 
         vkey: vk.bytes32().to_string(),
         public_values: format!("0x{}", hex::encode(bytes)),
         proof: format!("0x{}", hex::encode(proof.bytes())),
+        nft: nft.to_string(),
+        owner: owner.to_string(),
+        batch_number: batch_number.to_string(),
+        slot_position: slot_position.to_string(),
+        struct_type: struct_type.to_string(),
     };
 
     // The verification key is used to verify that the proof corresponds to the execution of the
