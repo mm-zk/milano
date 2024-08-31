@@ -1,0 +1,18 @@
+[workspace]
+members = [
+    "lib",
+    "program",
+    "script",
+]
+resolver = "2"
+
+[workspace.dependencies]
+alloy-sol-types = "0.7.7"
+tiny-keccak = { version = "2.0", features = ["keccak"] }
+alloy-primitives = "0.7.7"
+
+hex = "0.4"
+blake2 = "0.9"
+rlp = "0.5.0"
+k256 = "0.13.3"
+ethabi = "18.0.0"
