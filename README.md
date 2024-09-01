@@ -67,9 +67,10 @@ python3 verifier.py qr ../examples/proof_nft_qr.jpg
 
 In this case, you also have to 'hardcode' the verification key in the device code.
 
+You can see the example in 'open_door.py' on how this can be used.
 
 ## Stuff to do
 
 * Verify that transaction has executed correctly (get the receipt too).
-* hook up the QR code generator
-* start passing the file names directly.
+* The QR codes should also be 'signed' by the holder/sender.
+* And verifier should check that signature.
