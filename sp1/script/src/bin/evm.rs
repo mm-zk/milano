@@ -11,7 +11,10 @@ use clap::Parser;
 use fibonacci_lib::PublicValuesStruct;
 use serde::{Deserialize, Serialize};
 use sp1_sdk::{HashableKey, ProverClient, SP1ProofWithPublicValues, SP1Stdin, SP1VerifyingKey};
-use std::path::PathBuf;
+use std::{
+    fs::File,
+    io::{BufReader, Read},
+};
 
 /// The ELF (executable and linkable format) file for the Succinct RISC-V zkVM.
 pub const FIBONACCI_ELF: &[u8] = include_bytes!("../../../elf/riscv32im-succinct-zkvm-elf");
@@ -20,19 +23,27 @@ pub const FIBONACCI_ELF: &[u8] = include_bytes!("../../../elf/riscv32im-succinct
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct EVMArgs {
-    #[clap(long, default_value = "20")]
-    n: u32,
+    #[clap(long)]
+    input_file: String,
+
+    #[clap(long)]
+    output_proof_file: String,
 }
 
 /// A fixture that can be used to test the verification of SP1 zkVM proofs inside Solidity.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct SP1FibonacciProofFixture {
+    struct_type: String,
     sender: String,
     receiver: String,
     token: String,
-    amount: u64,
+    amount: String,
     tx_id: String,
+    nft: String,
+    owner: String,
+    batch_number: String,
+    slot_position: String,
     vkey: String,
     public_values: String,
     proof: String,
@@ -53,9 +64,13 @@ fn main() {
 
     // Setup the inputs.
     let mut stdin = SP1Stdin::new();
-    stdin.write(&args.n);
 
-    println!("n: {}", args.n);
+    let file = File::open(args.input_file).unwrap();
+    let mut reader = BufReader::new(file);
+    let mut data = String::new();
+    reader.read_to_string(&mut data).unwrap();
+
+    stdin.write(&data);
 
     // Generate the proof.
     let proof = client
@@ -64,19 +79,28 @@ fn main() {
         .run()
         .expect("failed to generate proof");
 
-    create_plonk_fixture(&proof, &vk);
+    create_plonk_fixture(&proof, &vk, args.output_proof_file);
 }
 
 /// Create a fixture for the given proof.
-fn create_plonk_fixture(proof: &SP1ProofWithPublicValues, vk: &SP1VerifyingKey) {
+fn create_plonk_fixture(
+    proof: &SP1ProofWithPublicValues,
+    vk: &SP1VerifyingKey,
+    output_file: String,
+) {
     // Deserialize the public values.
     let bytes = proof.public_values.as_slice();
     let PublicValuesStruct {
+        struct_type,
         sender,
         receiver,
         token,
         amount,
         tx_id,
+        nft,
+        owner,
+        batch_number,
+        slot_position,
     } = PublicValuesStruct::abi_decode(bytes, false).unwrap();
 
     // Create the testing fixture so we can test things end-to-end.
@@ -84,11 +108,16 @@ fn create_plonk_fixture(proof: &SP1ProofWithPublicValues, vk: &SP1VerifyingKey) 
         sender: sender.to_string(),
         receiver: receiver.to_string(),
         token: token.to_string(),
-        amount: amount.try_into().unwrap(),
+        amount: amount.to_string(),
         tx_id: tx_id.to_string(),
         vkey: vk.bytes32().to_string(),
         public_values: format!("0x{}", hex::encode(bytes)),
         proof: format!("0x{}", hex::encode(proof.bytes())),
+        nft: nft.to_string(),
+        owner: owner.to_string(),
+        batch_number: batch_number.to_string(),
+        slot_position: slot_position.to_string(),
+        struct_type: struct_type.to_string(),
     };
 
     // The verification key is used to verify that the proof corresponds to the execution of the
@@ -108,11 +137,7 @@ fn create_plonk_fixture(proof: &SP1ProofWithPublicValues, vk: &SP1VerifyingKey) 
     println!("Proof Bytes: {}", fixture.proof);
 
     // Save the fixture to a file.
-    let fixture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../contracts/src/fixtures");
-    std::fs::create_dir_all(&fixture_path).expect("failed to create fixture path");
-    std::fs::write(
-        fixture_path.join("fixture.json"),
-        serde_json::to_string_pretty(&fixture).unwrap(),
-    )
-    .expect("failed to write fixture");
+
+    std::fs::write(output_file, serde_json::to_string_pretty(&fixture).unwrap())
+        .expect("failed to write fixture");
 }

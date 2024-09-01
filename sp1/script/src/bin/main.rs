@@ -33,8 +33,8 @@ struct Args {
     #[clap(long)]
     prove: bool,
 
-    #[clap(long, default_value = "20")]
-    n: u32,
+    #[clap(long)]
+    input_file: String,
 }
 
 fn main() {
@@ -54,16 +54,13 @@ fn main() {
 
     // Setup the inputs.
     let mut stdin = SP1Stdin::new();
-    stdin.write(&args.n);
 
-    let file = File::open("../../output.json").unwrap();
+    let file = File::open(args.input_file).unwrap();
     let mut reader = BufReader::new(file);
     let mut data = String::new();
     reader.read_to_string(&mut data).unwrap();
 
     stdin.write(&data);
-
-    println!("n: {}", args.n);
 
     if args.execute {
         // Execute the program
@@ -73,11 +70,16 @@ fn main() {
         // Read the output.
         let decoded = PublicValuesStruct::abi_decode(output.as_slice(), true).unwrap();
         let PublicValuesStruct {
+            struct_type: _,
             sender,
             receiver,
             token,
             amount,
             tx_id,
+            nft: _,
+            owner: _,
+            batch_number: _,
+            slot_position: _,
         } = decoded;
 
         println!("sender: {:?}", sender);
@@ -103,5 +105,8 @@ fn main() {
         // Verify the proof.
         client.verify(&proof, &vk).expect("failed to verify proof");
         println!("Successfully verified proof!");
+
+        println!("Proof saved to large_proof.bin");
+        proof.save("large_proof.bin").unwrap();
     }
 }

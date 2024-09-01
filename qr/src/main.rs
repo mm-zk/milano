@@ -1,57 +1,62 @@
-use hex::decode;
-use image::{ImageBuffer, Luma};
-use qrcodegen::QrCode;
-use qrcodegen::QrCodeEcc;
+use std::fs::File;
+use std::io::BufReader;
+
+use clap::Parser;
+use hex::FromHex;
+use image::Luma;
+use serde::Deserialize;
+
+#[derive(Parser, Debug)]
+#[clap(author, version, about, long_about = None)]
+struct Args {
+    #[clap(long)]
+    input_file: String,
+    #[clap(long)]
+    output_file: String,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct ProofFixture {
+    proof: String,
+    #[serde(rename = "publicValues")]
+    public_values: String,
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Example byte data
-    let data = b"Hello, world!";
+    let args = Args::parse();
 
-    let fullData = decode("8c5bc5e42721bb72c74dca748737cf366708ea67ccffae680afb96ad0d7f00024c3b5bb6010499eb2d3df232204c417953ea63bfae228d88bcafa97c8387afe3cbca5b8e2fe1f458872f6d71fcf30f8e59c2b38de91abb497aa6ac070780f7058c71d27702e1d492cc08b059b8e66903bcaefd72d2d99ac7e99fb9dae4b33d81696386c02fcf3324cb6dcc46b9c12fab92343a07e3ac0f0db456f29595b9faa5b975958220c0382db4f885af3b3d23c0ea7ab8093b6d17df4a648fbea5d6db61ce2081b80221c2589dce607636cb850e5e86654344f6f650534b890b1af705b12f2a2eaa1f165b71e31334edd5ec306a2c53ea3981627c8a7123622c701056fa50d87b690c485d67c3d32c9305c371619531da04d82591d875ee739406239b928e1a492611829cd0a455777aada8bd313844dd769b68b1cbc893b0d5b412116d4cfec76704ba53a668ea90d3694644d1072d93deea3c0f998015ab5bafdbdbea8c2348361d52ff3c6e2d79fcad8afebaee076ca69b7cdb9aa647bde25b733453897e1e452ff42ba0d05fdc58984916e8660c382dbca336581caa75b7cc3d6916a386f0e821f79fa16e4216f4dfe44bbb164b18302387d4a4a7c7686fab89a30780667dbf0ed7d7a2a0bdf7d02eb754f8b94da64a641e0a0476035ceff3716e62e2e952ae0a2ac21e3bcd4d6c94e6d845671ae01984ce9ec7304c92485afd02c0c64f915205f1a2ba4d90733095ff80cbdd25661f1d36b9295290ed8a4fdb593355d1040924b325f8cf2c0358904b448caa169bdbdc6f7a667d4fc7d77c2a301ed0d917920bc1bb1f37bf6e9c16c358871085a2106c2f49afc9256db9c6ce12d8023b1584286051a1ba9a2f56525c7ada296fa7d010aa7ff03742ff5aa7f7cdd626d9b6630bf8570c18e114e8359c10c7370e20233230aa1ec9efa98416a525350dbd6f8017c1b3862017d16775832cc886790fdb364cb6c7ddfb6efcf1ea0e4aa083be8f27fb56c7930c49a5dead56646a937871da56fd7585036cf4976c79e4a13909242090c6be41c09de77d2ca074fa7a3190b39ced3ce5b11a50bbe5b82850937bb4250e1327a9a0274fc11e38ed7f3fcc105ed9fa3ed51db4acd0d977105a157a5e0c39ff0c2ee8b0304cf735a9e68d6c7a5e98d9c601d453e75cec49e977dee6fa2dfd19ccf6715a6c6fa2ab453f8df49f4a5e4e47741f267ff8abf78cdf85d35c").unwrap();
-    println!("Data length: {:?}", fullData.len());
+    let file = File::open(args.input_file).unwrap();
+    let reader = BufReader::new(file);
 
-    let data2 = b"
-    Verification Key: 0x00229a4bb10ca023fcbbdcc5ab8f519bd98ce482108bddb8a0582c3c09559cd7
-Public Values: 0x00000000000000000000000000000000000000000000000000000000000000140000000000000000000000000000000000000000000000000000000000001a6d0000000000000000000000000000000000000000000000000000000000002ac2
-Proof Bytes: 0x8c5bc5e42721bb72c74dca748737cf366708ea67ccffae680afb96ad0d7f00024c3b5bb6010499eb2d3df232204c417953ea63bfae228d88bcafa97c8387afe3cbca5b8e2fe1f458872f6d71fcf30f8e59c2b38de91abb497aa6ac070780f7058c71d27702e1d492cc08b059b8e66903bcaefd72d2d99ac7e99fb9dae4b33d81696386c02fcf3324cb6dcc46b9c12fab92343a07e3ac0f0db456f29595b9faa5b975958220c0382db4f885af3b3d23c0ea7ab8093b6d17df4a648fbea5d6db61ce2081b80221c2589dce607636cb850e5e86654344f6f650534b890b1af705b12f2a2eaa1f165b71e31334edd5ec306a2c53ea3981627c8a7123622c701056fa50d87b690c485d67c3d32c9305c371619531da04d82591d875ee739406239b928e1a492611829cd0a455777aada8bd313844dd769b68b1cbc893b0d5b412116d4cfec76704ba53a668ea90d3694644d1072d93deea3c0f998015ab5bafdbdbea8c2348361d52ff3c6e2d79fcad8afebaee076ca69b7cdb9aa647bde25b733453897e1e452ff42ba0d05fdc58984916e8660c382dbca336581caa75b7cc3d6916a386f0e821f79fa16e4216f4dfe44bbb164b18302387d4a4a7c7686fab89a30780667dbf0ed7d7a2a0bdf7d02eb754f8b94da64a641e0a0476035ceff3716e62e2e952ae0a2ac21e3bcd4d6c94e6d845671ae01984ce9ec7304c92485afd02c0c64f915205f1a2ba4d90733095ff80cbdd25661f1d36b9295290ed8a4fdb593355d1040924b325f8cf2c0358904b448caa169bdbdc6f7a667d4fc7d77c2a301ed0d917920bc1bb1f37bf6e9c16c358871085a2106c2f49afc9256db9c6ce12d8023b1584286051a1ba9a2f56525c7ada296fa7d010aa7ff03742ff5aa7f7cdd626d9b6630bf8570c18e114e8359c10c7370e20233230aa1ec9efa98416a525350dbd6f8017c1b3862017d16775832cc886790fdb364cb6c7ddfb6efcf1ea0e4aa083be8f27fb56c7930c49a5dead56646a937871da56fd7585036cf4976c79e4a13909242090c6be41c09de77d2ca074fa7a3190b39ced3ce5b11a50bbe5b82850937bb4250e1327a9a0274fc11e38ed7f3fcc105ed9fa3ed51db4acd0d977105a157a5e0c39ff0c2ee8b0304cf735a9e68d6c7a5e98d9c601d453e75cec49e977dee6fa2dfd19ccf6715a6c6fa2ab453f8df49f4a5e4e47741f267ff8abf78cdf85d35c
-";
+    let proof_fixture: ProofFixture = serde_json::from_reader(reader).unwrap();
 
-    // Generate QR code
-    let qr = QrCode::encode_binary(fullData.as_slice(), QrCodeEcc::Medium)
-        .expect("Failed to generate QR code");
+    let proof = Vec::from_hex(
+        proof_fixture
+            .proof
+            .strip_prefix("0x")
+            .unwrap_or(&proof_fixture.proof),
+    )
+    .unwrap();
 
-    // Determine the size of the QR code
-    let size = qr.size();
-    let scale = 10; // Scale factor for the image
+    let public_values = Vec::from_hex(
+        proof_fixture
+            .public_values
+            .strip_prefix("0x")
+            .unwrap_or(&proof_fixture.public_values),
+    )
+    .unwrap();
 
-    // Create an image buffer
-    let imgx = (size * scale) as u32;
-    let imgy = (size * scale) as u32;
-    let mut img = ImageBuffer::new(imgx, imgy);
+    let public_values_size = public_values.len() as u32;
 
-    // Fill the image buffer with the QR code data
-    for y in 0..size {
-        for x in 0..size {
-            let pixel_color = if qr.get_module(x, y) {
-                Luma([0u8]) // Black
-            } else {
-                Luma([255u8]) // White
-            };
-            for dy in 0..scale {
-                for dx in 0..scale {
-                    img.put_pixel(
-                        (x * scale + dx) as u32,
-                        (y * scale + dy) as u32,
-                        pixel_color,
-                    );
-                }
-            }
-        }
-    }
+    let public_vals = public_values_size.to_be_bytes();
 
-    // Save the image as a JPG file
-    img.save("qrcode.jpg")?;
+    let data = [&public_vals[..], &public_values, &proof].concat();
 
-    println!("QR code saved as qrcode.jpg");
+    let data_64 = base64::encode(&data);
+    println!("Encoding {} bytes as QR", data_64.len());
+    let code = qrcode::QrCode::new(data_64).unwrap();
+    let image = code.render::<Luma<u8>>().build();
+    image.save(&args.output_file).unwrap();
+    println!("QR code saved as {}", args.output_file);
     Ok(())
 }

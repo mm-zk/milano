@@ -1,123 +1,76 @@
 # milano
 
+Experimenting with client side offline zk proofs.
+
+
+The goal is to create a QR code that contains a self-contained zk proof of some transfer transaction from era mainnet.
+
+
+
+
+
+## Running
+
+Generate the .json file with all the data using the python creator file:
+
+```shell
+python3 online_creator.py transaction 0xbe8d5c1eba50aec04e07d627fb2bfcf71cafd242c9e231681ffc5aba12cc385c tmp/output_file.json
+```
+
+(or for NFT):
+### Running (for NFT)
+
+```shell
+python3 online_creator.py nft 0x1f13941d0995e111675124af4b0f9bdcc70390c3 0xfac041bcf2c4b43319c2c0a39aba53f4cbe44fe5 tmp/output_file.json
+```
+
+### Proving
+
+This will result in the `output_file.json` file with necessary data.
+
+Then you can verify it in sp1, by running (from the `sp1` directory):
+
+```shell
+cargo run --release -- --input-file=../tmp/output_file.json --execute
+```
+
+This will check that the output_file.json file is correct.
+
+Then you can generate the 'large' but fast proof (will take around 30 seconds):
+
+```shell
+cargo run --release -- --input-file=../tmp/output_file.json  --prove 
+```
+
+And then finally, the 'small' (KZG) proof (will take multiple minutes) - and this is what we need for the next step.
+
+```shell
+RUST_LOG=info cargo run --bin evm --release --  --input-file=../tmp/output_file.json --output-proof-file=../tmp/proof.json
+```
+
+### Generating QR code with proof
+
+Now you can generate the QR code that will contain your proof:
+
+```shell
+cargo run -- --input-file=../examples/proof_nft.json --output-file=../examples/proof_nft_qr.jpg
+```
+
+
+### Verify (on raspberry pi)
+
+Finally you can verify the proof from the QR code on your offline device:
+
+```shell
+python3 verifier.py qr ../examples/proof_nft_qr.jpg
+```
+
+In this case, you also have to 'hardcode' the verification key in the device code.
+
+You can see the example in 'open_door.py' on how this can be used.
 
 ## Stuff to do
 
-* config to handle different networks + operators
-* cleanup the code
-* create the rust version of the online creator
-* also pass the contents of the original transaction.
-
-### for ZK
-* design the public input
-* figure out the snark vs start verifier (how big would be the 'stark')
-
-
-## Public inputs
-(for simple scenario of burning FT)
-* FT address
-* 'sender'
-* transaction id (for uniqueness)
-* (stuff like ERA BLOB OPERATOR and CHAIN could be part of verification key - embedded in device)
-
-(in future - future, you might also need a way to update those verification keys via the QR codes..)
-
-
-## What has to be passed in the QR code:
-* proof that you 'own' that account (so something 'signed' with that key that is not public)
-* public inputs.
-
-
-
-## Problems
-
-* I can prove the transaction inclusion, but I also have to see the transaction receipt (or logs or events) and currently it seems
-that we don't really expose that.
-
-
-Example transaction: 
-0x4ce495a7b7841ccf3addcd16cb7b1903facf8060e81a34e0949143007210fa9a
-from: 0x170A75Aa81a7326fE111427f930a54CD08af859c
-to: 0x5A7d6b2F92C77FAD6CCaBd7EE0624E64907Eaf3E
-transfer amount: 1872350520000000000000
-
-
-cast send -r http://localhost:8545 0x63087Ad2A29ACC6e9372163bc6Fcc6c89BBDbEFb 0x --value 123 --private-key 0x7726827caac94a7f9e1b160f7ea819f172f7b6f9d2a97f992c38edeab82d4110
-
-blockHash               0x7dbd05f6fd4f12c05becea603c358fb9a8c44498d9e95de2196516de786d03bd
-blockNumber             254690
-contractAddress         
-cumulativeGasUsed       21000
-effectiveGasPrice       3000000001
-from                    0x36615Cf349d7F6344891B1e7CA7C72883F5dc049
-gasUsed                 21000
-logs                    []
-logsBloom               0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-root                    
-status                  1
-transactionHash         0x06045108ed51602772e8e6bba4e51040700f3cf2d6d7ca7ce370cdb35c58b669
-transactionIndex        0
-type                    2
-to                      0x63087Ad2A29ACC6e9372163bc6Fcc6c89BBDbEFb
-
-
-cast send -r http://localhost:3050 0x63087Ad2A29ACC6e9372163bc6Fcc6c89BBDbEFb 0x --value 123 --private-key 0x7726827caac94a7f9e1b160f7ea819f172f7b6f9d2a97f992c38edeab82d4110
-
-blockHash               0x20652e4cb1cac8cb60dbcee2aace7d782bf0400edba2ca0b6c3246b9e07de102
-blockNumber             136
-contractAddress         
-cumulativeGasUsed       0
-effectiveGasPrice       100000000
-from                    0x36615Cf349d7F6344891B1e7CA7C72883F5dc049
-gasUsed                 130876
-logs                    [{"address":"0x000000000000000000000000000000000000800a","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x00000000000000000000000036615cf349d7f6344891b1e7ca7c72883f5dc049","0x0000000000000000000000000000000000000000000000000000000000008001"],"data":"0x0000000000000000000000000000000000000000000000000001d60cd64c8000","blockHash":"0x20652e4cb1cac8cb60dbcee2aace7d782bf0400edba2ca0b6c3246b9e07de102","blockNumber":"0x88","transactionHash":"0xcf197210f1b1a8232c96d3cf5020ac87474cceff76023b51fa514304cc929b40","transactionIndex":"0x0","logIndex":"0x0","transactionLogIndex":"0x0","removed":false},{"address":"0x000000000000000000000000000000000000800a","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000000000000000000000000000000000000000008001","0x00000000000000000000000036615cf349d7f6344891b1e7ca7c72883f5dc049"],"data":"0x0000000000000000000000000000000000000000000000000001c75c6f9a1c00","blockHash":"0x20652e4cb1cac8cb60dbcee2aace7d782bf0400edba2ca0b6c3246b9e07de102","blockNumber":"0x88","transactionHash":"0xcf197210f1b1a8232c96d3cf5020ac87474cceff76023b51fa514304cc929b40","transactionIndex":"0x0","logIndex":"0x1","transactionLogIndex":"0x1","removed":false},{"address":"0x000000000000000000000000000000000000800a","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x00000000000000000000000036615cf349d7f6344891b1e7ca7c72883f5dc049","0x00000000000000000000000063087ad2a29acc6e9372163bc6fcc6c89bbdbefb"],"data":"0x000000000000000000000000000000000000000000000000000000000000007b","blockHash":"0x20652e4cb1cac8cb60dbcee2aace7d782bf0400edba2ca0b6c3246b9e07de102","blockNumber":"0x88","transactionHash":"0xcf197210f1b1a8232c96d3cf5020ac87474cceff76023b51fa514304cc929b40","transactionIndex":"0x0","logIndex":"0x2","transactionLogIndex":"0x2","removed":false},{"address":"0x000000000000000000000000000000000000800a","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000000000000000000000000000000000000000008001","0x00000000000000000000000036615cf349d7f6344891b1e7ca7c72883f5dc049"],"data":"0x000000000000000000000000000000000000000000000000000002c934f2a800","blockHash":"0x20652e4cb1cac8cb60dbcee2aace7d782bf0400edba2ca0b6c3246b9e07de102","blockNumber":"0x88","transactionHash":"0xcf197210f1b1a8232c96d3cf5020ac87474cceff76023b51fa514304cc929b40","transactionIndex":"0x0","logIndex":"0x3","transactionLogIndex":"0x3","removed":false}]
-logsBloom               0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-root                    0x20652e4cb1cac8cb60dbcee2aace7d782bf0400edba2ca0b6c3246b9e07de102
-status                  1
-transactionHash         0xcf197210f1b1a8232c96d3cf5020ac87474cceff76023b51fa514304cc929b40
-transactionIndex        0
-type                    2
-to                      0x63087Ad2A29ACC6e9372163bc6Fcc6c89BBDbEFb
-l1BatchNumber             null
-l1BatchTxIndex             null
-l2ToL1Logs             []
-
-
-
-(.venv) ➜  milano git:(master) ✗ cast send -r http://localhost:3050 0x63087Ad2A29ACC6e9372163bc6Fcc6c89BBDbEFb 'transfer(address,uint256)' 0x6aacbF3e732c830F4E06AA3e13461E005CD9ebC4 125 --private-key 0x7726827caac94a7f9e1b160f7ea819f172f7b6f9d2a97f992c38edeab82d4110
-
-blockHash               0xbbbbbd07ed4f93a51de87e8c885188470debf6c06c0f6fe1b521fcee6188a827
-blockNumber             138
-contractAddress         
-cumulativeGasUsed       0
-effectiveGasPrice       100000000
-from                    0x36615Cf349d7F6344891B1e7CA7C72883F5dc049
-gasUsed                 120722
-logs                    [{"address":"0x000000000000000000000000000000000000800a","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x00000000000000000000000036615cf349d7f6344891b1e7ca7c72883f5dc049","0x0000000000000000000000000000000000000000000000000000000000008001"],"data":"0x000000000000000000000000000000000000000000000000000185db81e04000","blockHash":"0xbbbbbd07ed4f93a51de87e8c885188470debf6c06c0f6fe1b521fcee6188a827","blockNumber":"0x8a","transactionHash":"0x79dc223f48e9edfee09d263c89237530c3075b5f4586111f4680df065b53528b","transactionIndex":"0x0","logIndex":"0x0","transactionLogIndex":"0x0","removed":false},{"address":"0x000000000000000000000000000000000000800a","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000000000000000000000000000000000000000008001","0x00000000000000000000000036615cf349d7f6344891b1e7ca7c72883f5dc049"],"data":"0x000000000000000000000000000000000000000000000000000179aca5d13e00","blockHash":"0xbbbbbd07ed4f93a51de87e8c885188470debf6c06c0f6fe1b521fcee6188a827","blockNumber":"0x8a","transactionHash":"0x79dc223f48e9edfee09d263c89237530c3075b5f4586111f4680df065b53528b","transactionIndex":"0x0","logIndex":"0x1","transactionLogIndex":"0x1","removed":false},{"address":"0x000000000000000000000000000000000000800a","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000000000000000000000000000000000000000008001","0x00000000000000000000000036615cf349d7f6344891b1e7ca7c72883f5dc049"],"data":"0x0000000000000000000000000000000000000000000000000000013414ddb000","blockHash":"0xbbbbbd07ed4f93a51de87e8c885188470debf6c06c0f6fe1b521fcee6188a827","blockNumber":"0x8a","transactionHash":"0x79dc223f48e9edfee09d263c89237530c3075b5f4586111f4680df065b53528b","transactionIndex":"0x0","logIndex":"0x2","transactionLogIndex":"0x2","removed":false}]
-logsBloom               0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-root                    0xbbbbbd07ed4f93a51de87e8c885188470debf6c06c0f6fe1b521fcee6188a827
-status                  1
-transactionHash         0x79dc223f48e9edfee09d263c89237530c3075b5f4586111f4680df065b53528b
-transactionIndex        0
-type                    2
-to                      0x63087Ad2A29ACC6e9372163bc6Fcc6c89BBDbEFb
-l1BatchNumber             null
-l1BatchTxIndex             null
-l2ToL1Logs             []
-(.venv) ➜  milano git:(master) ✗ cast send -r http://localhost:8545 0x63087Ad2A29ACC6e9372163bc6Fcc6c89BBDbEFb 'transfer(address,uint256)' 0x6aacbF3e732c830F4E06AA3e13461E005CD9ebC4 125 --private-key 0x7726827caac94a7f9e1b160f7ea819f172f7b6f9d2a97f992c38edeab82d4110
-
-blockHash               0xded686f30c3ab35e940f2167a405dfbfd9406fb4aa6d3c791c41ca12b80aac39
-blockNumber             258312
-contractAddress         
-cumulativeGasUsed       21560
-effectiveGasPrice       3000000001
-from                    0x36615Cf349d7F6344891B1e7CA7C72883F5dc049
-gasUsed                 21560
-logs                    []
-logsBloom               0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
-root                    
-status                  1
-transactionHash         0x5ceb34b99d64d48197919573a7df0dc31b290e3769483becdfaf303feb671136
-transactionIndex        0
-type                    2
-to                      0x63087Ad2A29ACC6e9372163bc6Fcc6c89BBDbEFb
+* Verify that transaction has executed correctly (get the receipt too).
+* The QR codes should also be 'signed' by the holder/sender.
+* And verifier should check that signature.

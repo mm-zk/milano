@@ -2,12 +2,14 @@ import json
 
 from py_ecc import bn128
 
-#from py_ecc.bn128 import FQ, FQ2
 from py_ecc.bn128.bn128_curve import G1, G2, add, multiply, FQ, FQ2, FQ12
 import hashlib
 
 from eth_utils import to_bytes, keccak, to_hex
-
+import argparse
+import cv2
+from pyzbar.pyzbar import decode
+import base64
 
 
 # Finite field prime (bn128)
@@ -43,8 +45,6 @@ VK_DOMAIN_SIZE = 33554432
 VK_INV_DOMAIN_SIZE = 21888242219518804655518433051623070663413851959604507555939307129453691614729;
 
 VK_INDEX_COMMIT_API_0 = 20988588
-
-
 
 G2_SRS_0_X_0 = 11559732032986387107991004021392285783925812861821192530917403151452391805634
 G2_SRS_0_X_1 = 10857046999023057135944570762232829481370756359578518086990519993285655852781
@@ -112,7 +112,6 @@ def compute_zeta(proof, alfa):
 
 def reduce_bytes(input):
     return (int.from_bytes(input, byteorder='big') % PRIME).to_bytes(32, 'big')
-
 
 
 
@@ -206,7 +205,7 @@ def compute_fold_h(proof, zeta_int):
 
 
 # Now entering actual verify function.
-def verify_plonk(proof, public_values):
+def verify_plonk_internal(proof, public_values):
 
     print(f"Public values len: {len(public_values)}")
     assert len(public_values) == 2
@@ -584,20 +583,19 @@ def verify_plonk(proof, public_values):
     pairing_product *= first_pairing
     pairing_product *= second_pairing
 
-
-
-
-    
-
     print("*** IS VALID --- ", pairing_product == FQ12.one())
 
+    return pairing_product == FQ12.one()
 
 
-
-
-
-
-    
+# Verifies plonk proof, given proof, verification key and public inputs.
+def verify_plonk(proof_bytes, vkey_bytes, public_values_bytes):
+    print(f"proof: {len(proof_bytes)}, vk: {len(vkey_bytes)} pv: {len(public_values_bytes)}")
+    public_values_hash = (int.from_bytes(hashlib.sha256(public_values_bytes).digest(), 'big') &( (1<<253) - 1)).to_bytes(32, 'big')
+    proof_valid = verify_plonk_internal(proof_bytes, [vkey_bytes, public_values_hash])
+    if not proof_valid:
+        raise Exception("Proof is not valid")
+    return proof_valid
 
 
 def verify(data):
@@ -606,26 +604,95 @@ def verify(data):
         raise "Wrong selector"
     
     proof_bytes = proof_bytes[4:]
-    inputs = bytes.fromhex(data['vkey'][2:])
 
-    
     public_values = bytes.fromhex(data['publicValues'][2:])
 
-
-    public_values_hash = (int.from_bytes(hashlib.sha256(public_values).digest(), 'big') &( (1<<253) - 1)).to_bytes(32, 'big')
+    # check that public values are matching other entries in json
+    struct_type = int(data["structType"]).to_bytes(32, 'big')
+    sender = bytes.fromhex(data['sender'][2:]).rjust(32, b'\x00')
+    receiver = bytes.fromhex(data['receiver'][2:]).rjust(32, b'\x00')
+    token = bytes.fromhex(data['token'][2:]).rjust(32, b'\x00')
     
-    verify_plonk(proof_bytes, [inputs, public_values_hash])
+    amount = int(data["amount"]).to_bytes(32, 'big')
+    tx_id = bytes.fromhex(data['txId'][2:]).rjust(32, b'\x00')
 
-    pass
+
+    nft = bytes.fromhex(data['nft'][2:]).rjust(32, b'\x00')
+    owner = bytes.fromhex(data['owner'][2:]).rjust(32, b'\x00')
+    batch_number = int(data["batchNumber"]).to_bytes(32, 'big')
+    slot_position = int(data["slotPosition"]).to_bytes(32, 'big')
+
+    computed_public_values = b"".join([struct_type, sender, receiver, token, amount, tx_id, nft, owner, batch_number, slot_position])
+
+    if public_values != computed_public_values:
+        raise Exception("Public values are not correct")
+
+
+    proof_valid = verify_plonk(proof_bytes, bytes.fromhex(data['vkey'][2:]), public_values)
+    if not proof_valid:
+        raise Exception("Proof is not valid")
+
+
+
+def decode_qr_code(image_path):
+    # Load the image using OpenCV
+    image = cv2.imread(image_path)
+    # Decode the QR code
+    decoded_objects = decode(image)
+    return decoded_objects[0].data.decode()
+    
+
+
+# This VK will change every time there is a change to the program that SP1 verifies.
+VERIFICATION_KEY = "00238ded04e76b8ba857754a53926a85650366a0ccfdd71a1430dc6cccdf1c28"
+
+def unpack_qr_code(data):
+    public_input_len = int.from_bytes(data[:4], 'big')
+    public_inputs = data[4:4+public_input_len]
+    proof = data[4+public_input_len:]
+    return (public_inputs, proof)
+
 
 
 def main():
-    with open("fixture.json", 'r') as file:
-        data = json.load(file)
-        verify(data)
+    parser = argparse.ArgumentParser(description='Milano - Proof verifier')
+    
+    # Command subparsers
+    subparsers = parser.add_subparsers(dest='command', required=True, help='Type of command')
+    
+    # Subparser for the "transaction" command
+    parser_transaction = subparsers.add_parser('json', help='Verify proof from JSON file')
+    
+    # Subparser for the "NFT" command
+    parser_nft = subparsers.add_parser('qr', help='Verify proof from QR code')
+    
+    # Common argument for both commands
+    parser.add_argument('input_file', type=str, help='JSON file name to write the output to')
+    
+    # Parse the arguments
+    args = parser.parse_args()
+
+
+    if args.command == 'json':
+        with open(args.input_file, 'r') as file:
+            data = json.load(file)
+            verify(data)
+    elif args.command == 'qr':
+        data = decode_qr_code(args.input_file)
+        # Data travels as b64 encoding in QR codes.
+        data = base64.b64decode(data)
+        (public_inputs, proof) = unpack_qr_code(data)
+        vkey = bytes.fromhex(VERIFICATION_KEY)
+
+        verify_plonk(proof[4:], vkey, public_inputs)
+        
+    else:
+        raise Exception("Invalid command - only json or QR are supported")
+     
 
 
 
 if __name__ == "__main__":
     main()
+
 

@@ -1,3 +1,4 @@
+import argparse
 import sys
 import json
 from web3 import Web3
@@ -12,11 +13,27 @@ ETH_URL = 'https://rpc.ankr.com/eth'
 
 
 
+def get_latest_batch_number():
+    headers = {"Content-Type": "application/json"}
+    data = {"jsonrpc": "2.0", "id": 1, "method": "zks_L1BatchNumber", "params": []}
+    response = requests.post(ZKSYNC_URL, headers=headers, data=json.dumps(data))
+    return int(response.json()["result"], 16)
+
+
+def get_last_block_for_batch(batch):
+    headers = {"Content-Type": "application/json"}
+    data = {"jsonrpc": "2.0", "id": 1, "method": "zks_getL1BatchBlockRange", "params": [batch]}
+    response = requests.post(ZKSYNC_URL, headers=headers, data=json.dumps(data))
+    return int(response.json()["result"][1], 16)
+
+
 # Fetches the storage proof for a given account, key, batch.
 # In the response, you get the value + index (which is used for repeated writes), and proof (a list of siblings on merkle path).
-def get_storage_proof(account, key, batch):
+def get_storage_proof(account:str, key:str, batch:int):
+    print(f"Key is {key} batch {batch}")
     headers = {"Content-Type": "application/json"}
     data = {"jsonrpc": "2.0", "id": 1, "method": "zks_getProof", "params": [account, [key], batch]}
+
     response = requests.post(ZKSYNC_URL, headers=headers, data=json.dumps(data))
     storage_proof = response.json()["result"]["storageProof"][0]
     return {'proof': storage_proof["proof"], 'value': storage_proof['value'], "index": storage_proof["index"]}
@@ -413,11 +430,56 @@ def get_batch_root_hash(l1_batch):
         "commitRawTx": raw_tx,
     }
 
+# Assume that 'owner' table is at position 3 - common place for openzeppelin template.
+NFT_USERMAP_POSITION = 3
+
+def prove_nft_ownership(nft_contract: bytes, user: bytes):
+    result = {"type": "nft", "nftContract": nft_contract.hex(), "nftOwner": user.hex(), "debug": {}}
+    batch = get_latest_batch_number() - 1
+    print(f"Latest batch is {batch}")
+    result["batchNumber"] = batch
+    last_block = get_last_block_for_batch(batch)
+    print(f"latest block: {last_block}")
+    storage_proof = get_storage_proof(nft_contract.hex(), utils.get_key_for_mapping_slot(NFT_USERMAP_POSITION, user), batch)
+
+    result["nftUsermapPosition"] =  NFT_USERMAP_POSITION
+    result["readSlot"] = utils.get_key_for_mapping_slot(NFT_USERMAP_POSITION, user)
 
 
+    if int(storage_proof["value"].strip("0x"),16) != 1:
+        raise Exception("NFT value is 0 - does this account really own this NFT?")
+    
+    result['storageProof'] = storage_proof
 
+
+    batch_root_data  = get_batch_root_hash(batch)
+    is_proven = batch_root_data['isProven']
+    roothash = batch_root_data['newStateRoot']
+    print(f"Commit tx hash is {batch_root_data['commitTxHash']}")
+
+    result['batchCommitTx'] = batch_root_data['commitRawTx'].hex()
+
+    roothashHex = "0x" + roothash.hex()
+
+    result['batchRoothash'] = roothashHex
+    
+    print(f"\033[92m[OK]\033[0m Roothash is {roothash.hex()}. Is proven: {is_proven}")
+
+    utils.verify_storage_proof("0x" + nft_contract.hex(), "0x" + utils.get_key_for_mapping_slot(NFT_USERMAP_POSITION, user), storage_proof['proof'], storage_proof['value'], storage_proof['index'],
+                         roothashHex)
+    
+    if is_proven:
+        print(f"\033[92m[OK]\033[0m Roothash is VALID and verified & proven on on L1.")
+    else:
+        print(f"\033[92m[OK]\033[0m Roothash is VALID and verified on L1. (but please wait for proof)")
+
+    return result
+
+
+# Generates the JSON file with all the witness data needed to prove that
+# a given TX was included in the chain.
 def prove_tx_inclusion_in_chain(tx):
-    result = {"transaction_id": tx, "debug": {}}
+    result = {"type": "tx", "transaction_id": tx, "debug": {}}
 
     (tx_body, tx_from, tx_to, tx_calldata) = get_tx_body_and_from(tx)
 
@@ -474,45 +536,71 @@ def prove_tx_inclusion_in_chain(tx):
     return result
 
 
+
+
+def help():
+    print("Please pass commands")
+    print(" To generate the proof of ERC20 transfer: ./online_creator.py tx $TRANSACTION_ID")
+    print(" To generate the proof of NFT posession:  ./online_creator.py nft $NFT_CONTRACT $NFT_OWNER")
+
+
+
+def parse_address_from_hex_to_bytes(addr_hex: str):
+    if len(addr_hex.strip("0x")) != 40:
+        raise Exception("Invalid address length: ", addr_hex)
+    
+    return int(addr_hex.strip("0x"),16).to_bytes(20, 'big')
+
+    
+
+
 def main():
 
-
-
-
-
-    #print(get_raw_tx_by_hash("0x4ce495a7b7841ccf3addcd16cb7b1903facf8060e81a34e0949143007210fa9a"))
-
-    #print(get_raw_tx_by_hash("0xbe8d5c1eba50aec04e07d627fb2bfcf71cafd242c9e231681ffc5aba12cc385c"))
-
-    #print("---------")
-
-    #print(get_raw_tx_by_hash("0x98a6b956b5f72d3221f437aa7941243270a18e6969432f8b221b6cd7212d0a41"))
-
-    #print(get_raw_tx_by_hash("0x7cac7b9a01a70d50996097876d8006e7cfbf170a32d85097c80b1e53cb76b940"))
+    parser = argparse.ArgumentParser(description='Milano - Proof witness creator')
     
-    #
-    #print(get_raw_tx_by_hash("0x13f64c6054f093575728fb88b79336bbfd7bec13f1c86cff0cf31193b31170de"))
-
-    #print(get_raw_tx_by_hash("0x7c2447b1592ff8d20178c8cbc1158bb1e21c5ad297169ba0d3bd2242c0624a4b"))
-   
-    # Check if at least one argument is provided
-    if len(sys.argv) > 1:
-        transaction_id = sys.argv[1]
-
-        file_path = "output.json"
-        if len(transaction_id) != 66 or transaction_id[:2] != "0x":
+    # Command subparsers
+    subparsers = parser.add_subparsers(dest='command', required=True, help='Type of command')
+    
+    # Subparser for the "transaction" command
+    parser_transaction = subparsers.add_parser('transaction', help='Prove a transaction')
+    parser_transaction.add_argument('transaction_id', type=str, help='Transaction ID')
+    
+    # Subparser for the "NFT" command
+    parser_nft = subparsers.add_parser('nft', help='Prove an NFT ownership ')
+    parser_nft.add_argument('nft_address', type=str, help='NFT Address')
+    parser_nft.add_argument('owner', type=str, help='Owner of the NFT')
+    
+    # Common argument for both commands
+    parser.add_argument('output_file', type=str, help='JSON file name to write the output to')
+    
+    # Parse the arguments
+    args = parser.parse_args()
+    
+    # Handle arguments based on the command
+    if args.command == 'transaction':
+        print(f"Handling transaction ID: {args.transaction_id}")
+        print(f"Output will be written to: {args.output_file}")
+        if len(args.transaction_id) != 66 or args.transaction_id[:2] != "0x":
             print("Please pass correct transaction id. For example 0xb07cf51bb1fb788e9ab4961af203ce1057cf40f2781007ff06e7c66b6fc814be")    
             return
-        data = prove_tx_inclusion_in_chain(transaction_id)
+        data = prove_tx_inclusion_in_chain(args.transaction_id)
 
-        with open(file_path, 'w') as file:
+        with open(args.output_file, 'w') as file:
             json.dump(data, file, indent=4)
-
-        print("Stored result in output.json")
-
         
+    elif args.command == 'nft':
+        print(f"Handling NFT at address: {args.nft_address} with owner: {args.owner}")
+        print(f"Output will be written to: {args.output_file}")
+        nft_id = parse_address_from_hex_to_bytes(args.nft_address)
+        nft_owner = parse_address_from_hex_to_bytes(args.owner)
+
+
+        data = prove_nft_ownership(nft_id, nft_owner)
+        with open(args.output_file, 'w') as file:
+            json.dump(data, file, indent=4)
     else:
-        print("Please pass transaction id. For example 0xb07cf51bb1fb788e9ab4961af203ce1057cf40f2781007ff06e7c66b6fc814be")
+        print(f"INVALID COMMAND - {args.command}")
+        
 
 if __name__ == "__main__":
     main()
