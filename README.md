@@ -48,11 +48,25 @@ And then finally, the 'small' (KZG) proof (will take multiple minutes) - and thi
 RUST_LOG=info cargo run --bin evm --release --  --input-file=../tmp/output_file.json --output-proof-file=../tmp/proof.json
 ```
 
-### Verify (on raspberry pi)
+### Generating QR code with proof
+
+Now you can generate the QR code that will contain your proof:
 
 ```shell
-python3 verifier.py
+cargo run -- --input-file=../examples/proof_nft.json --output-file=../examples/proof_nft_qr.jpg
 ```
+
+
+### Verify (on raspberry pi)
+
+Finally you can verify the proof from the QR code on your offline device:
+
+```shell
+python3 verifier.py qr ../examples/proof_nft_qr.jpg
+```
+
+In this case, you also have to 'hardcode' the verification key in the device code.
+
 
 ## Stuff to do
 

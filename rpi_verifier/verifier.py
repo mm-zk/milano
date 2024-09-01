@@ -6,6 +6,10 @@ from py_ecc.bn128.bn128_curve import G1, G2, add, multiply, FQ, FQ2, FQ12
 import hashlib
 
 from eth_utils import to_bytes, keccak, to_hex
+import argparse
+import cv2
+from pyzbar.pyzbar import decode
+import base64
 
 
 # Finite field prime (bn128)
@@ -586,6 +590,7 @@ def verify_plonk_internal(proof, public_values):
 
 # Verifies plonk proof, given proof, verification key and public inputs.
 def verify_plonk(proof_bytes, vkey_bytes, public_values_bytes):
+    print(f"proof: {len(proof_bytes)}, vk: {len(vkey_bytes)} pv: {len(public_values_bytes)}")
     public_values_hash = (int.from_bytes(hashlib.sha256(public_values_bytes).digest(), 'big') &( (1<<253) - 1)).to_bytes(32, 'big')
     proof_valid = verify_plonk_internal(proof_bytes, [vkey_bytes, public_values_hash])
     if not proof_valid:
@@ -628,10 +633,56 @@ def verify(data):
         raise Exception("Proof is not valid")
 
 
+
+def decode_qr_code(image_path):
+    # Load the image using OpenCV
+    image = cv2.imread(image_path)
+    # Decode the QR code
+    decoded_objects = decode(image)
+    return decoded_objects[0].data.decode()
+    
+
+
+# This VK will change every time there is a change to the program that SP1 verifies.
+VERIFICATION_KEY = "00238ded04e76b8ba857754a53926a85650366a0ccfdd71a1430dc6cccdf1c28"
+
 def main():
-    with open("fixture.json", 'r') as file:
-        data = json.load(file)
-        verify(data)
+    parser = argparse.ArgumentParser(description='Milano - Proof verifier')
+    
+    # Command subparsers
+    subparsers = parser.add_subparsers(dest='command', required=True, help='Type of command')
+    
+    # Subparser for the "transaction" command
+    parser_transaction = subparsers.add_parser('json', help='Verify proof from JSON file')
+    
+    # Subparser for the "NFT" command
+    parser_nft = subparsers.add_parser('qr', help='Verify proof from QR code')
+    
+    # Common argument for both commands
+    parser.add_argument('input_file', type=str, help='JSON file name to write the output to')
+    
+    # Parse the arguments
+    args = parser.parse_args()
+
+
+    if args.command == 'json':
+        with open(args.input_file, 'r') as file:
+            data = json.load(file)
+            verify(data)
+    elif args.command == 'qr':
+        data = decode_qr_code(args.input_file)
+        # Data travels as b64 encoding in QR codes.
+        data = base64.b64decode(data)                
+        public_input_len = int.from_bytes(data[:4], 'big')
+        public_inputs = data[4:4+public_input_len]
+        proof = data[4+public_input_len:]
+        vkey = bytes.fromhex(VERIFICATION_KEY)
+
+        verify_plonk(proof[4:], vkey, public_inputs)
+        
+    else:
+        raise Exception("Invalid command - only json or QR are supported")
+     
 
 
 
