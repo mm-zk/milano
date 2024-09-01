@@ -14,19 +14,19 @@ The goal is to create a QR code that contains a self-contained zk proof of some 
 Generate the .json file with all the data using the python creator file:
 
 ```shell
-python3 online_creator.py 0xbe8d5c1eba50aec04e07d627fb2bfcf71cafd242c9e231681ffc5aba12cc385c
+python3 online_creator.py transaction 0xbe8d5c1eba50aec04e07d627fb2bfcf71cafd242c9e231681ffc5aba12cc385c tmp/output_file.json
 ```
 
 (or for NFT):
 ### Running (for NFT)
 
 ```shell
-python3 online_creator.py nft 0x1f13941d0995e111675124af4b0f9bdcc70390c3 0xfac041bcf2c4b43319c2c0a39aba53f4cbe44fe5
+python3 online_creator.py nft 0x1f13941d0995e111675124af4b0f9bdcc70390c3 0xfac041bcf2c4b43319c2c0a39aba53f4cbe44fe5 tmp/output_file.json
 ```
 
 ### Proving
 
-This will result in the output.json file with necessary data.
+This will result in the `output_file.json` file with necessary data.
 
 Then you can verify it in sp1, by running (from the sp1/script directory):
 

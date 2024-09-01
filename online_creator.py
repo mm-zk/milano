@@ -1,3 +1,4 @@
+import argparse
 import sys
 import json
 from web3 import Web3
@@ -554,39 +555,51 @@ def parse_address_from_hex_to_bytes(addr_hex: str):
 
 
 def main():
-    # Check if at least one argument is provided
-    if len(sys.argv) > 2:
-        command = sys.argv[1]
-        if command == "tx":
-            transaction_id = sys.argv[2]
 
-            file_path = "output.json"
-            if len(transaction_id) != 66 or transaction_id[:2] != "0x":
-                print("Please pass correct transaction id. For example 0xb07cf51bb1fb788e9ab4961af203ce1057cf40f2781007ff06e7c66b6fc814be")    
-                return
-            data = prove_tx_inclusion_in_chain(transaction_id)
+    parser = argparse.ArgumentParser(description='Milano - Proof witness creator')
+    
+    # Command subparsers
+    subparsers = parser.add_subparsers(dest='command', required=True, help='Type of command')
+    
+    # Subparser for the "transaction" command
+    parser_transaction = subparsers.add_parser('transaction', help='Prove a transaction')
+    parser_transaction.add_argument('transaction_id', type=str, help='Transaction ID')
+    
+    # Subparser for the "NFT" command
+    parser_nft = subparsers.add_parser('nft', help='Prove an NFT ownership ')
+    parser_nft.add_argument('nft_address', type=str, help='NFT Address')
+    parser_nft.add_argument('owner', type=str, help='Owner of the NFT')
+    
+    # Common argument for both commands
+    parser.add_argument('output_file', type=str, help='JSON file name to write the output to')
+    
+    # Parse the arguments
+    args = parser.parse_args()
+    
+    # Handle arguments based on the command
+    if args.command == 'transaction':
+        print(f"Handling transaction ID: {args.transaction_id}")
+        print(f"Output will be written to: {args.output_file}")
+        if len(args.transaction_id) != 66 or args.transaction_id[:2] != "0x":
+            print("Please pass correct transaction id. For example 0xb07cf51bb1fb788e9ab4961af203ce1057cf40f2781007ff06e7c66b6fc814be")    
+            return
+        data = prove_tx_inclusion_in_chain(args.transaction_id)
 
-            with open(file_path, 'w') as file:
-                json.dump(data, file, indent=4)
-
-            print("Stored result in output.json")
-        elif command == "nft":
-            nft_id = parse_address_from_hex_to_bytes(sys.argv[2])
-            nft_owner = parse_address_from_hex_to_bytes(sys.argv[3])
-
-            file_path = "output_nft.json"
-
-            data = prove_nft_ownership(nft_id, nft_owner)
-            with open(file_path, 'w') as file:
-                json.dump(data, file, indent=4)
-
-        else:
-            help()
-
+        with open(args.output_file, 'w') as file:
+            json.dump(data, file, indent=4)
         
-        
+    elif args.command == 'nft':
+        print(f"Handling NFT at address: {args.nft_address} with owner: {args.owner}")
+        print(f"Output will be written to: {args.output_file}")
+        nft_id = parse_address_from_hex_to_bytes(args.nft_address)
+        nft_owner = parse_address_from_hex_to_bytes(args.owner)
+
+
+        data = prove_nft_ownership(nft_id, nft_owner)
+        with open(args.output_file, 'w') as file:
+            json.dump(data, file, indent=4)
     else:
-        help()
+        print(f"INVALID COMMAND - {args.command}")
         
 
 if __name__ == "__main__":
