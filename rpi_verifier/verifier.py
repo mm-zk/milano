@@ -201,7 +201,7 @@ def compute_fold_h(proof, zeta_int):
 
 
 # Now entering actual verify function.
-def verify_plonk(proof, public_values):
+def verify_plonk_internal(proof, public_values):
 
     print(f"Public values len: {len(public_values)}")
     assert len(public_values) == 2
@@ -584,13 +584,21 @@ def verify_plonk(proof, public_values):
     return pairing_product == FQ12.one()
 
 
+# Verifies plonk proof, given proof, verification key and public inputs.
+def verify_plonk(proof_bytes, vkey_bytes, public_values_bytes):
+    public_values_hash = (int.from_bytes(hashlib.sha256(public_values_bytes).digest(), 'big') &( (1<<253) - 1)).to_bytes(32, 'big')
+    proof_valid = verify_plonk_internal(proof_bytes, [vkey_bytes, public_values_hash])
+    if not proof_valid:
+        raise Exception("Proof is not valid")
+    return proof_valid
+
+
 def verify(data):
     proof_bytes = bytes.fromhex(data['proof'][2:])
     if proof_bytes[:4].hex() != "c430ff7f":
         raise "Wrong selector"
     
     proof_bytes = proof_bytes[4:]
-    inputs = bytes.fromhex(data['vkey'][2:])
 
     public_values = bytes.fromhex(data['publicValues'][2:])
 
@@ -615,9 +623,7 @@ def verify(data):
         raise Exception("Public values are not correct")
 
 
-    public_values_hash = (int.from_bytes(hashlib.sha256(public_values).digest(), 'big') &( (1<<253) - 1)).to_bytes(32, 'big')
-    
-    proof_valid = verify_plonk(proof_bytes, [inputs, public_values_hash])
+    proof_valid = verify_plonk(proof_bytes, bytes.fromhex(data['vkey'][2:]), public_values)
     if not proof_valid:
         raise Exception("Proof is not valid")
 
