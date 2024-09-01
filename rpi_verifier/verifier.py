@@ -646,6 +646,14 @@ def decode_qr_code(image_path):
 # This VK will change every time there is a change to the program that SP1 verifies.
 VERIFICATION_KEY = "00238ded04e76b8ba857754a53926a85650366a0ccfdd71a1430dc6cccdf1c28"
 
+def unpack_qr_code(data):
+    public_input_len = int.from_bytes(data[:4], 'big')
+    public_inputs = data[4:4+public_input_len]
+    proof = data[4+public_input_len:]
+    return (public_inputs, proof)
+
+
+
 def main():
     parser = argparse.ArgumentParser(description='Milano - Proof verifier')
     
@@ -672,10 +680,8 @@ def main():
     elif args.command == 'qr':
         data = decode_qr_code(args.input_file)
         # Data travels as b64 encoding in QR codes.
-        data = base64.b64decode(data)                
-        public_input_len = int.from_bytes(data[:4], 'big')
-        public_inputs = data[4:4+public_input_len]
-        proof = data[4+public_input_len:]
+        data = base64.b64decode(data)
+        (public_inputs, proof) = unpack_qr_code(data)
         vkey = bytes.fromhex(VERIFICATION_KEY)
 
         verify_plonk(proof[4:], vkey, public_inputs)
