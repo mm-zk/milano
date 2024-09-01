@@ -39,13 +39,13 @@ This will check that the output_file.json file is correct.
 Then you can generate the 'large' but fast proof (will take around 30 seconds):
 
 ```shell
-cargo run --release -- --prove 
+cargo run --release -- --input-file=../tmp/output_file.json  --prove 
 ```
 
 And then finally, the 'small' (KZG) proof (will take multiple minutes) - and this is what we need for the next step.
 
 ```shell
-cargo run --bin prove --release -- --evm
+RUST_LOG=info cargo run --bin evm --release --  --input-file=../tmp/output_file.json --output-proof-file=../tmp/proof.json
 ```
 
 ### Verify (on raspberry pi)

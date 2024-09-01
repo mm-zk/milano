@@ -14,7 +14,6 @@ use sp1_sdk::{HashableKey, ProverClient, SP1ProofWithPublicValues, SP1Stdin, SP1
 use std::{
     fs::File,
     io::{BufReader, Read},
-    path::PathBuf,
 };
 
 /// The ELF (executable and linkable format) file for the Succinct RISC-V zkVM.
@@ -24,8 +23,11 @@ pub const FIBONACCI_ELF: &[u8] = include_bytes!("../../../elf/riscv32im-succinct
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct EVMArgs {
-    #[clap(long, default_value = "20")]
-    n: u32,
+    #[clap(long)]
+    input_file: String,
+
+    #[clap(long)]
+    output_proof_file: String,
 }
 
 /// A fixture that can be used to test the verification of SP1 zkVM proofs inside Solidity.
@@ -63,7 +65,7 @@ fn main() {
     // Setup the inputs.
     let mut stdin = SP1Stdin::new();
 
-    let file = File::open("../output_nft.json").unwrap();
+    let file = File::open(args.input_file).unwrap();
     let mut reader = BufReader::new(file);
     let mut data = String::new();
     reader.read_to_string(&mut data).unwrap();
@@ -77,11 +79,15 @@ fn main() {
         .run()
         .expect("failed to generate proof");
 
-    create_plonk_fixture(&proof, &vk);
+    create_plonk_fixture(&proof, &vk, args.output_proof_file);
 }
 
 /// Create a fixture for the given proof.
-fn create_plonk_fixture(proof: &SP1ProofWithPublicValues, vk: &SP1VerifyingKey) {
+fn create_plonk_fixture(
+    proof: &SP1ProofWithPublicValues,
+    vk: &SP1VerifyingKey,
+    output_file: String,
+) {
     // Deserialize the public values.
     let bytes = proof.public_values.as_slice();
     let PublicValuesStruct {
@@ -131,11 +137,7 @@ fn create_plonk_fixture(proof: &SP1ProofWithPublicValues, vk: &SP1VerifyingKey) 
     println!("Proof Bytes: {}", fixture.proof);
 
     // Save the fixture to a file.
-    let fixture_path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../contracts/src/fixtures");
-    std::fs::create_dir_all(&fixture_path).expect("failed to create fixture path");
-    std::fs::write(
-        fixture_path.join("fixture.json"),
-        serde_json::to_string_pretty(&fixture).unwrap(),
-    )
-    .expect("failed to write fixture");
+
+    std::fs::write(output_file, serde_json::to_string_pretty(&fixture).unwrap())
+        .expect("failed to write fixture");
 }
