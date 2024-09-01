@@ -32,6 +32,9 @@ struct Args {
 
     #[clap(long)]
     prove: bool,
+
+    #[clap(long)]
+    input_file: String,
 }
 
 fn main() {
@@ -52,7 +55,7 @@ fn main() {
     // Setup the inputs.
     let mut stdin = SP1Stdin::new();
 
-    let file = File::open("../output_nft.json").unwrap();
+    let file = File::open(args.input_file).unwrap();
     let mut reader = BufReader::new(file);
     let mut data = String::new();
     reader.read_to_string(&mut data).unwrap();

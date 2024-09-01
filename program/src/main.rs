@@ -4,7 +4,7 @@ use tx_verifier::{verify_nft_proof, verify_proof, NFTOwnership, NFTProof, TokenT
 
 fn main() -> Result<(), String> {
     {
-        let file = File::open("../output_nft.json").unwrap();
+        let file = File::open("../examples/output_nft.json").unwrap();
         let reader = BufReader::new(file);
 
         // Parse the JSON into the Person struct.
@@ -21,7 +21,7 @@ fn main() -> Result<(), String> {
     }
     {
         // Open the file in read-only mode.
-        let file = File::open("../output.json").unwrap();
+        let file = File::open("../examples/output.json").unwrap();
         let reader = BufReader::new(file);
 
         // Parse the JSON into the Person struct.

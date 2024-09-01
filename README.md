@@ -28,13 +28,13 @@ python3 online_creator.py nft 0x1f13941d0995e111675124af4b0f9bdcc70390c3 0xfac04
 
 This will result in the `output_file.json` file with necessary data.
 
-Then you can verify it in sp1, by running (from the sp1/script directory):
+Then you can verify it in sp1, by running (from the `sp1` directory):
 
 ```shell
-cargo run --release -- --execute
+cargo run --release -- --input-file=../tmp/output_file.json --execute
 ```
 
-This will check that the output.json file is correct.
+This will check that the output_file.json file is correct.
 
 Then you can generate the 'large' but fast proof (will take around 30 seconds):
 
@@ -42,7 +42,7 @@ Then you can generate the 'large' but fast proof (will take around 30 seconds):
 cargo run --release -- --prove 
 ```
 
-And then finally, the 'small' (KZG) proof (will take multiple minutes):
+And then finally, the 'small' (KZG) proof (will take multiple minutes) - and this is what we need for the next step.
 
 ```shell
 cargo run --bin prove --release -- --evm
